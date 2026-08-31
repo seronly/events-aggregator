@@ -35,9 +35,10 @@ class ProviderEventsPageSchema(BaseModel):
 class ProviderSeatsSchema(BaseModel):
     seats: list[str]
 
+
 class ProviderRegisterSchema(BaseModel):
     ticket_id: str
 
+
 class ProviderUnregisterSchema(BaseModel):
     success: bool
-
