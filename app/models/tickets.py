@@ -17,7 +17,7 @@ class Ticket(BaseModel):
     )
 
     event_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("events.id", ondelete="RESTRICT"), nullable=True, index=True
+        Uuid, ForeignKey("events.id", ondelete="RESTRICT"), nullable=False, index=True
     )
 
     first_name: Mapped[str] = mapped_column(String(128), nullable=False)
