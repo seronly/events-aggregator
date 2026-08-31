@@ -30,3 +30,14 @@ class ProviderEventsPageSchema(BaseModel):
     next: str | None
     previous: str | None
     results: list[ProviderEventSchema]
+
+
+class ProviderSeatsSchema(BaseModel):
+    seats: list[str]
+
+class ProviderRegisterSchema(BaseModel):
+    ticket_id: str
+
+class ProviderUnregisterSchema(BaseModel):
+    success: bool
+
