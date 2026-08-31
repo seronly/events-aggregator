@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     postgres_host: str = "db"
     postgres_port: int = 5432
-    postgres_database: str = ""
+    postgres_database_name: str = ""
     postgres_username: str = ""
     postgres_password: str = ""
 
@@ -30,7 +30,7 @@ class Settings(BaseSettings):
             self.postgres_password,
             self.postgres_host,
             self.postgres_port,
-            self.postgres_database,
+            self.postgres_database_name,
         )
 
     model_config = SettingsConfigDict(
