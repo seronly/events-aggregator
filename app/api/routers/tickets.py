@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import APIRouter
 
 from app.schemas.tickets import (
@@ -14,4 +16,4 @@ async def register(data: TicketCreateQuerySchema): ...
 
 
 @router.delete("/{ticket_id}", response_model=TicketDeleteSchema)
-async def close(): ...
+async def unregister(ticket_id: uuid.UUID): ...
