@@ -1,10 +1,11 @@
+import uuid
 from datetime import datetime
 
 from pydantic import BaseModel
 
 
 class ProviderPlaceSchema(BaseModel):
-    id: str
+    id: uuid.UUID
     name: str
     city: str
     address: str
@@ -14,7 +15,7 @@ class ProviderPlaceSchema(BaseModel):
 
 
 class ProviderEventSchema(BaseModel):
-    id: str
+    id: uuid.UUID
     name: str
     place: ProviderPlaceSchema
     event_time: datetime
@@ -37,7 +38,7 @@ class ProviderSeatsSchema(BaseModel):
 
 
 class ProviderRegisterSchema(BaseModel):
-    ticket_id: str
+    ticket_id: uuid.UUID
 
 
 class ProviderUnregisterSchema(BaseModel):
