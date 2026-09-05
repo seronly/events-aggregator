@@ -20,7 +20,7 @@ from app.services.tickets import TicketService
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 
 
-@router.post("", response_model=TicketCreateSchema)
+@router.post("", response_model=TicketCreateSchema, status_code=201)
 async def register(
     data: TicketCreateQuerySchema,
     tickets: TicketService = Depends(get_ticket_service),
