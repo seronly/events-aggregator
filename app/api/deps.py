@@ -5,11 +5,18 @@ from app.clients.events_provider import EventsProviderClient
 from app.core.db import get_session
 from app.repositories.events import SqlAlchemyEventRepository
 from app.repositories.places import SqlAlchemyPlaceRepository
-from app.repositories.protocols import EventRepository, PlaceRepository, SyncRepository
+from app.repositories.protocols import (
+    EventRepository,
+    PlaceRepository,
+    SyncRepository,
+    TicketRepository,
+)
 from app.repositories.sync import SqlAlchemySyncRepository
+from app.repositories.tickets import SqlAlchemyTicketRepository
 from app.services.events import EventService
 from app.services.seats import SeatsService
 from app.services.sync_events import SyncEventsService
+from app.services.tickets import TicketService
 
 
 def get_event_repository(
@@ -59,3 +66,19 @@ def get_seats_service(
     events_repo: EventRepository = Depends(get_event_repository),
 ) -> SeatsService:
     return SeatsService(client=client, events_repo=events_repo)
+
+def get_ticket_repository(
+        session: AsyncSession = Depends(get_session)
+        ) -> TicketRepository:
+    return SqlAlchemyTicketRepository(session)
+
+def get_ticket_service(
+    client: EventsProviderClient = Depends(get_events_provider_client),
+    events_repo: EventRepository = Depends(get_event_repository),
+    ticket_repo: TicketRepository = Depends(get_ticket_repository),
+) -> TicketService:
+    return TicketService(
+            client=client,
+            events=events_repo,
+            tickets=ticket_repo
+            )
