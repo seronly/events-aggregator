@@ -54,7 +54,7 @@ class EventsProviderClient:
 
         params = {"first_name": first_name, "last_name": last_name, "email": email}
 
-        async with AsyncClient() as client:
+        async with AsyncClient(follow_redirects=True) as client:
             response = await client.post(url=url, headers=self.headers, json=params)
 
         response.raise_for_status()
