@@ -7,6 +7,20 @@ from app.domain import entities
 from app.models.tickets import Ticket
 
 
+def _to_domain(ticket: Ticket) -> entities.Ticket:
+    return Ticket(
+        id=ticket.id,
+        provider_ticket_id=ticket.provider_ticket_id,
+        event_id=ticket.event_id,
+        first_name=ticket.first_name,
+        last_name=ticket.last_name,
+        email=ticket.email,
+        seat=ticket.seat,
+        cancelled=ticket.cancelled,
+        idempotency_key=ticket.idempotency_key,
+    )
+
+
 class SqlAlchemyTicketRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
@@ -27,10 +41,12 @@ class SqlAlchemyTicketRepository:
 
         return ticket.provider_ticket_id
 
-    async def get_by_provider_ticket_id(self, ticket_id: UUID) -> Ticket | None:
+    async def get_by_provider_ticket_id(
+        self, ticket_id: UUID
+    ) -> entities.Ticket | None:
         stmt = select(Ticket).where(Ticket.external_ticket_id == ticket_id)
-        result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
+        result = (await self.session.execute(stmt)).scalar_one_or_none()
+        return _to_domain(result) if result else None
 
     async def delete_by_provider_ticket_id(self, ticket_id: UUID) -> bool:
         ticket = await self.get_by_provider_ticket_id(ticket_id)
