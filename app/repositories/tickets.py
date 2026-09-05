@@ -8,7 +8,7 @@ from app.models.tickets import Ticket
 
 
 def _to_domain(ticket: Ticket) -> entities.Ticket:
-    return Ticket(
+    return entities.Ticket(
         id=ticket.id,
         provider_ticket_id=ticket.external_ticket_id,
         event_id=ticket.event_id,
