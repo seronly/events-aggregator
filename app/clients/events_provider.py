@@ -73,7 +73,7 @@ class EventsProviderClient:
         params = {"ticket_id": ticket_id}
 
         async with AsyncClient(follow_redirects=True) as client:
-            response = await client.post(url=url, headers=self.headers, json=params)
+            response = await client.request(method="DELETE", url=url, headers=self.headers, json=params)
 
         response.raise_for_status()
         return ProviderUnregisterSchema.model_validate(response.json())
