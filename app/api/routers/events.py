@@ -1,9 +1,11 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.exceptions import HTTPException
 
 from app.api.deps import get_events_service, get_seats_service
 from app.domain.entities import Event
+from app.errors.events import EventNotFound, EventUnexpectedStatus
 from app.schemas.events import (
     EventsDetailSchema,
     EventsListItemSchema,
@@ -85,29 +87,38 @@ async def get_events(
 async def get_event_detail(
     event_id: UUID, events: EventService = Depends(get_events_service)
 ):
-    event = await events.get_event_detail(event_id=event_id)
+    try:
+        event = await events.get_event_detail(event_id=event_id)
+
+    except EventNotFound as e:
+        raise HTTPException(status_code=404, detail="Event not found") from e
 
     return EventsDetailSchema(
-        id=event.id,
-        name=event.name,
-        place=PlaceDetailSchema(
-            id=event.place.id,
-            name=event.place.name,
-            city=event.place.city,
-            address=event.place.address,
-            seats_pattern=event.place.seats_pattern,
-        ),
-        event_time=event.event_time,
-        registration_deadline=event.registration_deadline,
-        status=event.status,
-        number_of_visitors=event.number_of_visitors,
-    )
+            id=event.id,
+            name=event.name,
+            place=PlaceDetailSchema(
+                id=event.place.id,
+                name=event.place.name,
+                city=event.place.city,
+                address=event.place.address,
+                seats_pattern=event.place.seats_pattern,
+            ),
+            event_time=event.event_time,
+            registration_deadline=event.registration_deadline,
+            status=event.status,
+            number_of_visitors=event.number_of_visitors,
+        )
 
 
 @router.get("/{event_id}/seats", response_model=EventsSeatsSchema)
 async def get_event_seats_info(
     event_id: UUID, seats: SeatsService = Depends(get_seats_service)
 ):
-    available_seats = await seats.get_seats(event_id=event_id)
+    try:
+        available_seats = await seats.get_seats(event_id=event_id)
+    except EventNotFound as e:
+        raise HTTPException(status_code=404, detail="Event not found") from e
+    except EventUnexpectedStatus as e:
+        raise HTTPException(status_code=409, detail="Event unexpected status") from e
 
     return EventsSeatsSchema(event_id=event_id, available_seats=available_seats)
