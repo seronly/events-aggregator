@@ -9,14 +9,14 @@ WORKDIR /code
 
 COPY --chown=appuser:appuser pyproject.toml uv.lock ./
 
+ENV UV_NO_DEV=1
+
 RUN uv sync --frozen
 
 COPY --chown=appuser:appuser . .
 
 USER appuser
 
-ENV UV_NO_DEV=1
-
 ENTRYPOINT ["./entrypoint.sh"]
 
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["bash", "./entrypoint.sh"]
