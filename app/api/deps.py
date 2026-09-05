@@ -7,6 +7,8 @@ from app.repositories.events import SqlAlchemyEventRepository
 from app.repositories.places import SqlAlchemyPlaceRepository
 from app.repositories.protocols import EventRepository, PlaceRepository, SyncRepository
 from app.repositories.sync import SqlAlchemySyncRepository
+from app.services.events import EventService
+from app.services.seats import SeatsService
 from app.services.sync_events import SyncEventsService
 
 
@@ -14,6 +16,12 @@ def get_event_repository(
     session: AsyncSession = Depends(get_session),
 ) -> EventRepository:
     return SqlAlchemyEventRepository(session)
+
+
+def get_events_service(
+    events_repo: EventRepository = Depends(get_event_repository),
+) -> EventService:
+    return EventService(events_repo)
 
 
 def get_sync_repository(
@@ -46,3 +54,8 @@ def get_sync_events_service(
     )
 
 
+def get_seats_service(
+    client: EventsProviderClient = Depends(get_events_provider_client),
+    events_repo: EventRepository = Depends(get_event_repository),
+) -> SeatsService:
+    return SeatsService(client=client, events_repo=events_repo)

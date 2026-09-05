@@ -8,3 +8,6 @@ class PlaceSchema(BaseModel):
     name: str
     city: str
     address: str
+
+class PlaceDetailSchema(PlaceSchema):
+    seats_pattern: str

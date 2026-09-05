@@ -1,15 +1,10 @@
 import uuid
 from datetime import date, datetime
-from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from app.schemas.place import PlaceSchema
-
-
-class EventsStatus(StrEnum):
-    NEW = "new"
-    PUBLISHED = "published"
+from app.enums.event import EventStatus
+from app.schemas.place import PlaceDetailSchema, PlaceSchema
 
 
 class EventsQuerySchema(BaseModel):
@@ -21,10 +16,20 @@ class EventsQuerySchema(BaseModel):
 class EventsDetailSchema(BaseModel):
     id: uuid.UUID
     name: str
+    place: PlaceDetailSchema
+    event_time: datetime
+    registration_deadline: datetime
+    status: EventStatus
+    number_of_visitors: int
+
+
+class EventsListItemSchema(BaseModel):
+    id: uuid.UUID
+    name: str
     place: PlaceSchema
     event_time: datetime
     registration_deadline: datetime
-    status: EventsStatus
+    status: EventStatus
     number_of_visitors: int
 
 
@@ -32,7 +37,7 @@ class EventsListSchema(BaseModel):
     count: int
     next: str | None
     previous: str | None
-    results: list[EventsDetailSchema]
+    results: list[EventsListItemSchema]
 
 
 class EventsSeatsSchema(BaseModel):
