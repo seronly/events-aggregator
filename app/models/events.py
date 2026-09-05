@@ -32,12 +32,6 @@ class Event(BaseModel):
     changed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, index=True
     )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
-    status_changed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
 
-    place: Mapped["Place"] = relationship(back_populates="events") # noqa: UP037
+    place: Mapped[Place] = relationship(back_populates="events")
 
