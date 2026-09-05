@@ -48,11 +48,16 @@ class EventsProviderClient:
         return ProviderSeatsSchema.model_validate(response.json())
 
     async def register(
-        self, event_id: str, first_name: str, last_name: str, email: str
+        self, event_id: str, first_name: str, last_name: str, email: str, seat: str
     ) -> ProviderRegisterSchema:
         url = self.base_url + f"/api/events/{event_id}/register/"
 
-        params = {"first_name": first_name, "last_name": last_name, "email": email}
+        params = {
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": email,
+            "seat": seat,
+        }
 
         async with AsyncClient(follow_redirects=True) as client:
             response = await client.post(url=url, headers=self.headers, json=params)

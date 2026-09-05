@@ -45,6 +45,7 @@ class TicketService:
             first_name=first_name,
             last_name=last_name,
             email=email,
+            seat=seat,
         )
         ticket = Ticket(
             id=uuid.uuid4(),
