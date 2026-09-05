@@ -10,7 +10,7 @@ from app.models.tickets import Ticket
 def _to_domain(ticket: Ticket) -> entities.Ticket:
     return Ticket(
         id=ticket.id,
-        provider_ticket_id=ticket.provider_ticket_id,
+        provider_ticket_id=ticket.external_ticket_id,
         event_id=ticket.event_id,
         first_name=ticket.first_name,
         last_name=ticket.last_name,
