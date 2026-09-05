@@ -5,7 +5,6 @@ from uuid import UUID
 from app.domain.entities import Event, Place, SyncState
 
 
-
 class EventRepository(Protocol):
     async def get_by_id(self, event_id: UUID) -> Event | None: ...
 
