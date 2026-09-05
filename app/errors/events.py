@@ -3,3 +3,9 @@ class EventNotFound(Exception):
 
 class EventUnexpectedStatus(Exception):
     pass
+
+class RegistrationClosed(Exception):
+    pass
+
+class EventAlreadyOccurred(Exception):
+    pass

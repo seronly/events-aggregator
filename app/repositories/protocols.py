@@ -2,7 +2,15 @@ from datetime import date
 from typing import Protocol
 from uuid import UUID
 
-from app.domain.entities import Event, Place, SyncState
+from app.domain.entities import Event, Place, SyncState, Ticket
+
+
+class TicketRepository(Protocol):
+    async def create(self, ticket: Ticket) -> UUID: ...
+
+    async def get_by_provider_ticket_id(self, ticket_id: UUID) -> Ticket | None: ...
+
+    async def delete_by_provider_ticket_id(self, ticket_id: UUID) -> bool: ...
 
 
 class EventRepository(Protocol):

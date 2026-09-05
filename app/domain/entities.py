@@ -26,6 +26,17 @@ class Event:
     number_of_visitors: int
     changed_at: datetime.datetime
 
+
+@dataclass(slots=True)
+class Ticket:
+    id: uuid.UUID
+    provider_ticket_id: uuid.UUID
+    event_id: uuid.UUID
+    first_name: str
+    last_name: str
+    email: str
+    seat: str
+
 @dataclass(slots=True)
 class SyncState:
     last_sync_time: datetime.datetime | None
