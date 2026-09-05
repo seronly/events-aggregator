@@ -16,8 +16,6 @@ def _to_domain(ticket: Ticket) -> entities.Ticket:
         last_name=ticket.last_name,
         email=ticket.email,
         seat=ticket.seat,
-        cancelled=ticket.cancelled,
-        idempotency_key=ticket.idempotency_key,
     )
 
 
