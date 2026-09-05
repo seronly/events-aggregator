@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api.routers import events, sync
+from app.api.routers import events, sync, tickets
 from app.core.config import settings
 
 app = FastAPI(
@@ -10,6 +10,7 @@ app = FastAPI(
 
 app.include_router(events.router)
 app.include_router(sync.router)
+app.include_router(tickets.router)
 
 
 @app.get("/api/health", tags=["health"])
