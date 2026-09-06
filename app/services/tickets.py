@@ -61,7 +61,7 @@ class TicketService:
         return ticket_id
 
     async def unregister(self, ticket_id: UUID) -> bool:
-        ticket = await self._tickets.get_by_provider_ticket_id(ticket_id=ticket_id)
+        ticket = await self._tickets.get(ticket_id=ticket_id)
 
         if ticket is None:
             raise TicketNotFound()
@@ -75,10 +75,9 @@ class TicketService:
             raise EventAlreadyOccurred()
 
         unregister_response = await self._client.unregister(
-            str(event.id), str(ticket_id)
-
+            str(event.id), str(ticket.provider_ticket_id)
         )
         if unregister_response.success:
-            await self._tickets.delete_by_provider_ticket_id(ticket_id=ticket_id)
+            await self._tickets.delete_by_id(ticket_id=ticket_id)
 
         return unregister_response.success

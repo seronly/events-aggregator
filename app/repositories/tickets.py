@@ -1,6 +1,5 @@
 from uuid import UUID
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain import entities
@@ -37,18 +36,15 @@ class SqlAlchemyTicketRepository:
 
         await self.session.flush()
 
-        return ticket.provider_ticket_id
+        return sql_ticket.id
 
-    async def get_by_provider_ticket_id(
-        self, ticket_id: UUID
-    ) -> entities.Ticket | None:
-        stmt = select(Ticket).where(Ticket.external_ticket_id == ticket_id)
-        result = (await self.session.execute(stmt)).scalar_one_or_none()
-        return _to_domain(result) if result else None
+    async def get(self, ticket_id: UUID) -> entities.Ticket | None:
+        ticket = await self.session.get(Ticket, ticket_id)
 
-    async def delete_by_provider_ticket_id(self, ticket_id: UUID) -> bool:
-        stmt = select(Ticket).where(Ticket.external_ticket_id == ticket_id)
-        ticket = (await self.session.execute(stmt)).scalar_one_or_none()
+        return _to_domain(ticket) if ticket else None
+
+    async def delete_by_id(self, ticket_id: UUID) -> bool:
+        ticket = await self.session.get(Ticket, ticket_id)
 
         if not ticket:
             return False
