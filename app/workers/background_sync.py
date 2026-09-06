@@ -21,7 +21,7 @@ class BackgroundSyncWorker:
 
     def start(self) -> None:
         self._task = asyncio.create_task(self._loop(), name="events-sync-worker")
-        logger.info("Background worker started", {"interval": self._interval})
+        logger.info("Background worker started, interval=%s", self._interval)
 
     async def stop(self) -> None:
         if self._task is not None:
