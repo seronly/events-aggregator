@@ -1,4 +1,4 @@
-from fastapi import Depends
+from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.events_provider import EventsProviderClient
@@ -43,8 +43,8 @@ def get_place_repository(
     return SqlAlchemyPlaceRepository(session)
 
 
-def get_events_provider_client() -> EventsProviderClient:
-    return EventsProviderClient()
+def get_events_provider_client(request: Request) -> EventsProviderClient:
+    return request.app.state.provider_client
 
 
 def get_sync_events_service(

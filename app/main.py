@@ -2,12 +2,14 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from starlette.responses import JSONResponse
 
+from app.api.lifespan import lifespan
 from app.api.routers import events, sync, tickets
 from app.core.config import settings
 
 app = FastAPI(
     title=settings.app_name,
-    version="1.0.0",
+    lifespan=lifespan,
+    version="1.1.0",
 )
 
 app.include_router(events.router)

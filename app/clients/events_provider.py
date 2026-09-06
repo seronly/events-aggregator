@@ -1,6 +1,5 @@
 from httpx import AsyncClient
 
-from app.core.config import settings
 from app.schemas.events_provider import (
     ProviderEventsPageSchema,
     ProviderRegisterSchema,
@@ -10,21 +9,28 @@ from app.schemas.events_provider import (
 
 
 class EventsProviderClient:
-    def __init__(self) -> None:
-        self.base_url = settings.events_provider_base_url
-        self.api_key = settings.events_provider_api_key.get_secret_value()
+    def __init__(self, base_url: str, api_key: str = "", timeout: float = 15.0) -> None:
+        headers = {"x-api-key": api_key} if api_key else {}
+        self._client = AsyncClient(
+            base_url=base_url.rstrip("/"),
+            headers=headers,
+            timeout=timeout,
+            follow_redirects=True,
+        )
 
-    @property
-    def headers(self) -> dict[str, str]:
-        return {
-            "x-api-key": self.api_key,
-            "Content-Type": "application/json",
-        }
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+    async def __aenter__(self) -> EventsProviderClient:
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        await self.aclose()
 
     async def events(
         self, changed_at: str = "2000-01-01", cursor: str | None = None
     ) -> ProviderEventsPageSchema:
-        url = self.base_url + "/api/events/"
+        url = "/api/events/"
         params = {
             "changed_at": changed_at,
         }
@@ -32,17 +38,15 @@ class EventsProviderClient:
         if cursor is not None:
             params["cursor"] = cursor
 
-        async with AsyncClient(follow_redirects=True) as client:
-            response = await client.get(url=url, params=params, headers=self.headers)
+        response = await self._client.get(url=url, params=params)
 
         response.raise_for_status()
         return ProviderEventsPageSchema.model_validate(response.json())
 
     async def get_seats(self, event_id: str) -> ProviderSeatsSchema:
-        url = self.base_url + f"/api/events/{event_id}/seats/"
+        url = f"/api/events/{event_id}/seats/"
 
-        async with AsyncClient(follow_redirects=True) as client:
-            response = await client.get(url=url, headers=self.headers)
+        response = await self._client.get(url=url)
 
         response.raise_for_status()
         return ProviderSeatsSchema.model_validate(response.json())
@@ -50,7 +54,7 @@ class EventsProviderClient:
     async def register(
         self, event_id: str, first_name: str, last_name: str, email: str, seat: str
     ) -> ProviderRegisterSchema:
-        url = self.base_url + f"/api/events/{event_id}/register/"
+        url = f"/api/events/{event_id}/register/"
 
         params = {
             "first_name": first_name,
@@ -59,8 +63,7 @@ class EventsProviderClient:
             "seat": seat,
         }
 
-        async with AsyncClient(follow_redirects=True) as client:
-            response = await client.post(url=url, headers=self.headers, json=params)
+        response = await self._client.post(url=url, json=params)
 
         response.raise_for_status()
         return ProviderRegisterSchema.model_validate(response.json())
@@ -68,14 +71,11 @@ class EventsProviderClient:
     async def unregister(
         self, event_id: str, ticket_id: str
     ) -> ProviderUnregisterSchema:
-        url = self.base_url + f"/api/events/{event_id}/unregister/"
+        url = f"/api/events/{event_id}/unregister/"
 
         params = {"ticket_id": ticket_id}
 
-        async with AsyncClient(follow_redirects=True) as client:
-            response = await client.request(
-                method="DELETE", url=url, headers=self.headers, json=params
-            )
+        response = await self._client.request(method="DELETE", url=url, json=params)
 
         response.raise_for_status()
         return ProviderUnregisterSchema.model_validate(response.json())
