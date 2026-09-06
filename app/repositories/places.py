@@ -6,7 +6,7 @@ from app.models.places import Place
 
 
 def _to_domain(sql_place: Place) -> entities.Place:
-    return Place(
+    return entities.Place(
         id=sql_place.id,
         name=sql_place.name,
         city=sql_place.city,
