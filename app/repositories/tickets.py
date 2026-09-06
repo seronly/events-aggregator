@@ -52,7 +52,17 @@ class SqlAlchemyTicketRepository:
         if not ticket:
             return False
 
-        await self.session.delete(ticket)
+        sql_ticket = Ticket(
+            id=ticket.id,
+            external_ticket_id=ticket.provider_ticket_id,
+            event_id=ticket.event_id,
+            first_name=ticket.first_name,
+            last_name=ticket.last_name,
+            seat=ticket.seat,
+            email=ticket.email,
+        )
+
+        await self.session.delete(sql_ticket)
         await self.session.flush()
 
         return True
