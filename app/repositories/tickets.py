@@ -47,22 +47,13 @@ class SqlAlchemyTicketRepository:
         return _to_domain(result) if result else None
 
     async def delete_by_provider_ticket_id(self, ticket_id: UUID) -> bool:
-        ticket = await self.get_by_provider_ticket_id(ticket_id)
+        stmt = select(Ticket).where(Ticket.external_ticket_id == ticket_id)
+        ticket = (await self.session.execute(stmt)).scalar_one_or_none()
 
         if not ticket:
             return False
 
-        sql_ticket = Ticket(
-            id=ticket.id,
-            external_ticket_id=ticket.provider_ticket_id,
-            event_id=ticket.event_id,
-            first_name=ticket.first_name,
-            last_name=ticket.last_name,
-            seat=ticket.seat,
-            email=ticket.email,
-        )
-
-        await self.session.delete(sql_ticket)
+        await self.session.delete(ticket)
         await self.session.flush()
 
         return True
