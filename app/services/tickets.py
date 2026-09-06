@@ -76,6 +76,9 @@ class TicketService:
 
         unregister_response = await self._client.unregister(
             str(event.id), str(ticket_id)
+
         )
+        if unregister_response.success:
+            await self._tickets.delete_by_provider_ticket_id(ticket_id=ticket_id)
 
         return unregister_response.success
