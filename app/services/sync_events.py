@@ -74,7 +74,7 @@ class SyncEventsService:
                 last_changed_at = max(event.changed_at, last_changed_at)
 
         except Exception as e:
-            logger.warning(e)
+            logger.exception(e)
             await self._sync_repo.save_state(
                 SyncState(datetime.now(UTC), last_changed_at, SyncStatus.FAILED, str(e))
             )
