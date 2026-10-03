@@ -111,7 +111,7 @@ class TicketService:
 
         success_registration_message = (
             f"Вы успешно зарегистрированы на {event.name},"
-            " {event.event_time:%d.%m.%Y %H:%M}, место {seat}"
+            f" {event.event_time:%d.%m.%Y %H:%M}, место {seat}"
         )
         record_id = uuid.uuid4()
         await self._outbox.create(

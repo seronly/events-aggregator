@@ -1,0 +1,3157 @@
+This file is a merged representation of a subset of the codebase, containing files not matching ignore patterns, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching these patterns are excluded: .gitignore, alembic.ini
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+.github/
+  workflows/
+    deploy.yml
+app/
+  api/
+    routers/
+      __init__.py
+      events.py
+      sync.py
+      tickets.py
+    __init__.py
+    deps.py
+    lifespan.py
+  clients/
+    __init__.py
+    capashino.py
+    events_paginator.py
+    events_provider.py
+  core/
+    __init__.py
+    config.py
+    db.py
+  domain/
+    entities.py
+  enums/
+    event.py
+    outbox.py
+    sync_state.py
+  errors/
+    __init__.py
+    capashino.py
+    events.py
+    tickets.py
+  models/
+    __init__.py
+    events.py
+    outbox.py
+    places.py
+    sync_state.py
+    tickets.py
+  repositories/
+    __init__.py
+    events.py
+    outbox.py
+    places.py
+    protocols.py
+    sync.py
+    tickets.py
+  schemas/
+    __init__.py
+    events_provider.py
+    events.py
+    place.py
+    tickets.py
+  services/
+    __init__.py
+    events.py
+    seats.py
+    sync_events.py
+    tickets.py
+  workers/
+    background_sync.py
+    outbox.py
+  main.py
+migrations/
+  versions/
+    248605f0e39b_create_events_places_and_tickets_tables.py
+    3470d9565509_add_outbox_table.py
+    73d91eba3b06_delete_useless_columns_from_events_table.py
+    93fddb254a2d_add_syncevent_table.py
+    9e1006682810_delete_changed_at_and_created_at_.py
+    fbea495c14b0_add_idempotency_key_to_tickets_table.py
+  env.py
+  README
+  script.py.mako
+tests/
+  test_provider_client.py
+  test_provider_paginator.py
+.dockerignore
+.env.example
+.python-version
+docker-compose.yml
+Dockerfile
+entrypoint.sh
+pyproject.toml
+README.md
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="app/api/routers/__init__.py">
+
+</file>
+
+<file path="app/api/__init__.py">
+
+</file>
+
+<file path="app/clients/__init__.py">
+
+</file>
+
+<file path="app/clients/capashino.py">
+from httpx import AsyncClient, HTTPError
+
+from app.errors.capashino import CapashinoError
+
+
+class CapashinoClient:
+    def __init__(self, base_url: str, api_key: str = "", timeout: float = 15.0) -> None:
+        headers = {"x-api-key": api_key} if api_key else {}
+        self._client = AsyncClient(
+            base_url=base_url.rstrip("/"),
+            headers=headers,
+            timeout=timeout,
+            follow_redirects=True,
+        )
+
+    async def send_notification(self, payload: dict) -> bool:
+        try:
+            response = await self._client.post("/api/notifications", json=payload)
+        except HTTPError as exception:
+            raise CapashinoError(
+                f"Connection error with Capashino: {exception}"
+            ) from exception
+
+        if response.status_code in (201, 409):
+            return True
+
+        if response.status_code in (400, 401, 422):
+            raise CapashinoError(
+                f"Capashino reject request with status code {response.status_code}"
+            )
+
+        raise CapashinoError(
+            f"Capashino unavailable. Status code: {response.status_code}",
+        )
+</file>
+
+<file path="app/clients/events_paginator.py">
+from collections.abc import AsyncIterator
+from urllib.parse import parse_qs, urlparse
+
+from app.clients.events_provider import EventsProviderClient
+from app.schemas.events_provider import ProviderEventSchema, ProviderEventsPageSchema
+
+
+class EventsPaginator:
+    def __init__(self, client: EventsProviderClient, changed_at: str) -> None:
+        self.client = client
+        self.changed_at = changed_at
+        self._cursor: str | None = None
+        self._buffer: list[ProviderEventSchema] = []
+        self._is_over: bool = False
+
+    def __aiter__(self) -> AsyncIterator[ProviderEventSchema]:
+        return self
+
+    async def __anext__(self) -> ProviderEventSchema:
+        while not self._buffer:
+            if self._is_over:
+                raise StopAsyncIteration
+
+            page: ProviderEventsPageSchema = await self.client.events(
+                changed_at=self.changed_at, cursor=self._cursor
+            )
+            self._buffer.extend(page.results)
+
+            if page.next is None:
+                self._is_over = True
+            else:
+                self._cursor = self._extract_cursor(page.next)
+
+        return self._buffer.pop(0)
+
+    def _extract_cursor(self, next_url: str | None) -> str | None:
+        if not next_url:
+            return None
+
+        parsed = urlparse(next_url)
+        return parse_qs(parsed.query).get("cursor", [None])[0]
+</file>
+
+<file path="app/core/__init__.py">
+
+</file>
+
+<file path="app/enums/event.py">
+from enum import StrEnum
+
+
+class EventStatus(StrEnum):
+    NEW = "new"
+    PUBLISHED = "published"
+    FINISHED = "finished"
+    REGISTRATION_CLOSED = "registration_closed"
+</file>
+
+<file path="app/enums/outbox.py">
+from enum import StrEnum
+
+
+class OutboxTypes(StrEnum):
+    NOTIFICATION = "notification"
+
+
+class OutboxStatus(StrEnum):
+    PENDING = "pending"
+    SENT = "sent"
+    FAILED = "failed"
+</file>
+
+<file path="app/enums/sync_state.py">
+from enum import StrEnum
+
+
+class SyncStatus(StrEnum):
+    IDLE = "idle"
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+</file>
+
+<file path="app/errors/__init__.py">
+
+</file>
+
+<file path="app/errors/capashino.py">
+class CapashinoError(Exception):
+    pass
+</file>
+
+<file path="app/models/outbox.py">
+import datetime
+import uuid
+
+from sqlalchemy import DateTime, Integer, String, Uuid, func
+from sqlalchemy.dialects.postgresql import JSON, JSONB
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.core.db import BaseModel
+from app.enums.outbox import OutboxStatus, OutboxTypes
+
+
+class Outbox(BaseModel):
+    __tablename__ = "outbox"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    event_type: Mapped[OutboxTypes] = mapped_column(
+        String(64), default=OutboxTypes.NOTIFICATION
+    )
+    payload: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"))
+    status: Mapped[OutboxStatus] = mapped_column(
+        String(16), default=OutboxStatus.PENDING
+    )
+    attempts_number: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    changed_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+</file>
+
+<file path="app/models/sync_state.py">
+from datetime import datetime
+
+from sqlalchemy import DateTime, Integer, String
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.core.db import BaseModel
+from app.enums.sync_state import SyncStatus
+
+
+class SyncState(BaseModel):
+    __tablename__ = "sync_state"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    last_sync_time: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    sync_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=SyncStatus.IDLE.value,
+    )
+
+    last_error: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+</file>
+
+<file path="app/repositories/__init__.py">
+
+</file>
+
+<file path="app/repositories/events.py">
+from datetime import date
+from uuid import UUID
+
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.domain import entities
+from app.enums.event import EventStatus
+from app.models.events import Event
+
+
+def _to_domain(sql_event: Event) -> entities.Event:
+    place = sql_event.place
+    return entities.Event(
+        id=sql_event.id,
+        name=sql_event.name,
+        place=entities.Place(
+            id=place.id,
+            name=place.name,
+            city=place.city,
+            address=place.address,
+            seats_pattern=place.seats_pattern,
+        ),
+        event_time=sql_event.event_time,
+        registration_deadline=sql_event.registration_deadline,
+        status=EventStatus(sql_event.status),
+        number_of_visitors=sql_event.number_of_visitors,
+        changed_at=sql_event.changed_at,
+    )
+
+
+class SqlAlchemyEventRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_by_id(self, event_id: UUID) -> Event | None:
+        stmt = (
+            select(Event).options(selectinload(Event.place)).where(Event.id == event_id)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def upsert(self, event: entities.Event) -> None:
+        stmt = insert(Event).values(
+            id=event.id,
+            name=event.name,
+            place_id=event.place.id,
+            event_time=event.event_time,
+            registration_deadline=event.registration_deadline,
+            status=event.status,
+            number_of_visitors=event.number_of_visitors,
+            changed_at=event.changed_at,
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[Event.id],
+            set_={
+                "name": stmt.excluded.name,
+                "place_id": stmt.excluded.place_id,
+                "event_time": stmt.excluded.event_time,
+                "registration_deadline": stmt.excluded.registration_deadline,
+                "status": stmt.excluded.status,
+                "number_of_visitors": stmt.excluded.number_of_visitors,
+                "changed_at": stmt.excluded.changed_at,
+            },
+        )
+        await self.session.execute(stmt)
+
+    async def get_list_paginated(
+        self, date_from: date | None = None, page: int = 1, page_size: int = 20
+    ) -> list[entities.Event]:
+        stmt = select(Event).options(selectinload(Event.place))
+        if date_from is not None:
+            stmt = stmt.where(Event.event_time >= date_from)
+
+        stmt = (
+            stmt.order_by(Event.event_time)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        result = (await self.session.execute(stmt)).scalars().all()
+        return [_to_domain(row) for row in result]
+
+    async def count(self, date_from: date | None = None) -> int:
+        stmt = select(func.count()).select_from(Event)
+        if date_from is not None:
+            stmt = stmt.where(Event.event_time >= date_from)
+
+        result = (await self.session.execute(stmt)).scalar_one()
+        return result
+</file>
+
+<file path="app/repositories/outbox.py">
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.domain import entities
+from app.enums.outbox import OutboxStatus
+from app.models.outbox import Outbox
+
+
+def _to_domain(sql_outbox: Outbox) -> entities.OutboxRecord:
+    return entities.OutboxRecord(
+        id=sql_outbox.id,
+        event_type=sql_outbox.event_type,
+        payload=sql_outbox.payload,
+        status=sql_outbox.status,
+        attempts_number=sql_outbox.attempts_number,
+        created_at=sql_outbox.created_at,
+        changed_at=sql_outbox.changed_at,
+    )
+
+
+class SqlAlchemyOutboxRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def create(self, record: entities.OutboxRecord) -> None:
+        record = Outbox(
+            id=record.id,
+            event_type=record.event_type,
+            payload=record.payload,
+            status=OutboxStatus.PENDING,
+        )
+        self.session.add(record)
+
+    async def get_pending(self, limit: int) -> list[entities.OutboxRecord]:
+        stmt = (
+            select(Outbox)
+            .where(Outbox.status == OutboxStatus.PENDING)
+            .order_by(Outbox.created_at)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
+        )
+        result = (await self.session.execute(stmt)).scalars().all()
+        return [_to_domain(row) for row in result]
+
+    async def mark_sent(self, record_id: UUID) -> None:
+        record = await self.session.get(Outbox, record_id)
+        if record is not None:
+            record.status = OutboxStatus.SENT
+
+    async def mark_failed_attempt(self, record_id: UUID) -> None:
+        record = await self.session.get(Outbox, record_id)
+        if record is not None:
+            record.attempts_number += 1
+
+    async def mark_failed(self, record_id: UUID) -> None:
+        record = await self.session.get(Outbox, record_id)
+        if record is not None:
+            record.status = OutboxStatus.FAILED
+</file>
+
+<file path="app/repositories/sync.py">
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.domain import entities
+from app.enums.sync_state import SyncStatus
+from app.models.sync_state import SyncState
+
+
+class SqlAlchemySyncRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get_state(self) -> entities.SyncState:
+        sync_state = await self.session.get(SyncState, 1)
+        if sync_state is None:
+            return entities.SyncState(
+                last_sync_time=None, last_changed_at=None, sync_status=SyncStatus.IDLE
+            )
+        return entities.SyncState(
+            last_sync_time=sync_state.last_sync_time,
+            last_changed_at=sync_state.last_changed_at,
+            sync_status=SyncStatus(sync_state.sync_status),
+            last_error=sync_state.last_error,
+        )
+
+    async def save_state(self, state: entities.SyncState) -> None:
+        stmt = insert(SyncState).values(
+            id=1,
+            last_sync_time=state.last_sync_time,
+            last_changed_at=state.last_changed_at,
+            sync_status=state.sync_status,
+            last_error=state.last_error,
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[SyncState.id],
+            set_={
+                "last_sync_time": stmt.excluded.last_sync_time,
+                "last_changed_at": stmt.excluded.last_changed_at,
+                "sync_status": stmt.excluded.sync_status,
+                "last_error": stmt.excluded.last_error,
+            },
+        )
+        await self.session.execute(stmt)
+</file>
+
+<file path="app/schemas/__init__.py">
+
+</file>
+
+<file path="app/services/__init__.py">
+
+</file>
+
+<file path="app/services/events.py">
+from datetime import date
+from uuid import UUID
+
+from app.domain.entities import Event
+from app.errors.events import EventNotFound
+from app.repositories.protocols import EventRepository
+
+
+class EventService:
+    def __init__(self, events: EventRepository) -> None:
+        self.events = events
+
+    async def get_events(
+        self, date_from: date | None = None, page: int = 1, page_size: int = 20
+    ) -> tuple[list[Event], int]:
+        list_events = await self.events.get_list_paginated(
+            date_from=date_from, page=page, page_size=page_size
+        )
+        count_events = await self.events.count(date_from=date_from)
+
+        return list_events, count_events
+
+    async def get_event_detail(self, event_id: UUID) -> Event:
+        event = await self.events.get_by_id(event_id)
+
+        if event is None:
+            raise EventNotFound(event_id)
+
+        return event
+</file>
+
+<file path="app/services/seats.py">
+from time import monotonic
+from uuid import UUID
+
+from app.clients.events_provider import EventsProviderClient
+from app.enums.event import EventStatus
+from app.errors.events import EventNotFound, EventUnexpectedStatus
+from app.repositories.protocols import EventRepository
+
+_CACHE: dict[UUID, tuple[float, list[str]]] = {}
+_CACHE_TTL_SECONDS = 30.0
+
+class SeatsService:
+    def __init__(
+        self,
+        client: EventsProviderClient,
+        events_repo: EventRepository,
+    ):
+        self._client = client
+        self._events_repo = events_repo
+
+    async def get_seats(self, event_id: UUID) -> list[str]:
+        cached = _CACHE.get(event_id)
+        now = monotonic()
+
+        if cached is not None and now - cached[0] < _CACHE_TTL_SECONDS:
+            return cached[1]
+
+        event = await self._events_repo.get_by_id(event_id=event_id)
+
+        if not event:
+            raise EventNotFound
+
+        if event.status != EventStatus.PUBLISHED:
+            raise EventUnexpectedStatus
+
+        available_seats = await self._client.get_seats(event_id=str(event_id))
+        _CACHE[event_id] = (now, available_seats.seats)
+        return available_seats.seats
+</file>
+
+<file path="app/workers/outbox.py">
+import asyncio
+import contextlib
+import logging
+
+from app.clients.capashino import CapashinoClient
+from app.core.config import settings
+from app.core.db import session_maker
+from app.errors.capashino import CapashinoError
+from app.repositories.outbox import SqlAlchemyOutboxRepository
+
+logger = logging.getLogger(__name__)
+
+
+class OutboxWorker:
+    def __init__(
+        self, client: CapashinoClient, interval: int, max_attempts: int
+    ) -> None:
+        self._client = client
+        self._interval = interval
+        self._max_attempts = max_attempts
+        self._task: asyncio.Task | None = None
+
+    def start(self) -> None:
+        self._task = asyncio.create_task(self._loop(), name="outbox-dispatcher")
+
+    async def stop(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+
+    async def _loop(self) -> None:
+        while True:
+            await self._run_once()
+            await asyncio.sleep(self._interval)
+
+    async def _run_once(self) -> None:
+        try:
+            async with session_maker() as session:
+                async with session.begin():
+                    outbox = SqlAlchemyOutboxRepository(session)
+                    records = await outbox.get_pending(
+                        limit=settings.outbox_limit_records
+                    )
+
+                    for record in records:
+                        if record.attempts_number >= self._max_attempts:
+                            await outbox.mark_failed(record_id=record.id)
+                            continue
+
+                        try:
+                            async with session.begin_nested():
+                                try:
+                                    await self._client.send_notification(record.payload)
+                                except CapashinoError:
+                                    await outbox.mark_failed_attempt(
+                                        record_id=record.id
+                                    )
+                                else:
+                                    await outbox.mark_sent(record_id=record.id)
+                        except Exception as e:
+                            logger.exception(
+                                "Unexpected error while process record in worker",
+                                {"record_id": record.id, "exception": e},
+                            )
+        except Exception as e:
+            logger.exception(
+                "Unexpected error in outbox worker",
+                {"exception": e},
+            )
+</file>
+
+<file path="migrations/versions/248605f0e39b_create_events_places_and_tickets_tables.py">
+"""Create events, places and tickets tables
+
+Revision ID: 248605f0e39b
+Revises: 
+Create Date: 2026-08-31 15:05:06.961892
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = '248605f0e39b'
+down_revision: Union[str, Sequence[str], None] = None
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.create_table('places',
+    sa.Column('id', sa.Uuid(), nullable=False),
+    sa.Column('name', sa.String(length=255), nullable=False),
+    sa.Column('city', sa.String(length=255), nullable=False),
+    sa.Column('address', sa.String(length=255), nullable=False),
+    sa.Column('seats_pattern', sa.String(length=255), nullable=False),
+    sa.Column('changed_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_table('events',
+    sa.Column('id', sa.Uuid(), nullable=False),
+    sa.Column('name', sa.String(length=255), nullable=False),
+    sa.Column('place_id', sa.Uuid(), nullable=False),
+    sa.Column('event_time', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('registration_deadline', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('status', sa.String(length=255), nullable=False),
+    sa.Column('number_of_visitors', sa.Integer(), nullable=False),
+    sa.Column('changed_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('status_changed_at', sa.DateTime(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(['place_id'], ['places.id'], ondelete='RESTRICT'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_events_changed_at'), 'events', ['changed_at'], unique=False)
+    op.create_index(op.f('ix_events_place_id'), 'events', ['place_id'], unique=False)
+    op.create_table('tickets',
+    sa.Column('id', sa.Uuid(), nullable=False),
+    sa.Column('external_ticket_id', sa.Uuid(), nullable=False),
+    sa.Column('event_id', sa.Uuid(), nullable=False),
+    sa.Column('first_name', sa.String(length=128), nullable=False),
+    sa.Column('last_name', sa.String(length=128), nullable=False),
+    sa.Column('seat', sa.String(length=50), nullable=False),
+    sa.Column('email', sa.String(length=255), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(['event_id'], ['events.id'], ondelete='RESTRICT'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_tickets_event_id'), 'tickets', ['event_id'], unique=False)
+    op.create_index(op.f('ix_tickets_external_ticket_id'), 'tickets', ['external_ticket_id'], unique=True)
+    # ### end Alembic commands ###
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_index(op.f('ix_tickets_external_ticket_id'), table_name='tickets')
+    op.drop_index(op.f('ix_tickets_event_id'), table_name='tickets')
+    op.drop_table('tickets')
+    op.drop_index(op.f('ix_events_place_id'), table_name='events')
+    op.drop_index(op.f('ix_events_changed_at'), table_name='events')
+    op.drop_table('events')
+    op.drop_table('places')
+    # ### end Alembic commands ###
+</file>
+
+<file path="migrations/versions/3470d9565509_add_outbox_table.py">
+"""Add outbox table
+
+Revision ID: 3470d9565509
+Revises: 73d91eba3b06
+Create Date: 2026-10-03 11:16:59.872268
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+
+# revision identifiers, used by Alembic.
+revision: str = '3470d9565509'
+down_revision: Union[str, Sequence[str], None] = '73d91eba3b06'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.create_table('outbox',
+    sa.Column('id', sa.Uuid(), nullable=False),
+    sa.Column('event_type', sa.String(length=64), nullable=False),
+    sa.Column('payload', postgresql.JSON(astext_type=sa.Text()).with_variant(postgresql.JSONB(astext_type=sa.Text()), 'postgresql'), nullable=False),
+    sa.Column('status', sa.String(length=16), nullable=False),
+    sa.Column('attempts_number', sa.Integer(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('changed_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.PrimaryKeyConstraint('id')
+    )
+    # ### end Alembic commands ###
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_table('outbox')
+    # ### end Alembic commands ###
+</file>
+
+<file path="migrations/versions/73d91eba3b06_delete_useless_columns_from_events_table.py">
+"""Delete useless columns from events table
+
+Revision ID: 73d91eba3b06
+Revises: 9e1006682810
+Create Date: 2026-09-04 23:40:56.110950
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+
+# revision identifiers, used by Alembic.
+revision: str = '73d91eba3b06'
+down_revision: Union[str, Sequence[str], None] = '9e1006682810'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_column('events', 'status_changed_at')
+    op.drop_column('events', 'created_at')
+    # ### end Alembic commands ###
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.add_column('events', sa.Column('created_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=False))
+    op.add_column('events', sa.Column('status_changed_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=False))
+    # ### end Alembic commands ###
+</file>
+
+<file path="migrations/versions/93fddb254a2d_add_syncevent_table.py">
+"""Add SyncEvent table
+
+Revision ID: 93fddb254a2d
+Revises: 248605f0e39b
+Create Date: 2026-09-04 15:16:02.918100
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = '93fddb254a2d'
+down_revision: Union[str, Sequence[str], None] = '248605f0e39b'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.create_table('sync_state',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('last_sync_time', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('last_changed_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('sync_status', sa.String(length=32), nullable=False),
+    sa.Column('last_error', sa.String(length=1024), nullable=True),
+    sa.PrimaryKeyConstraint('id')
+    )
+    # ### end Alembic commands ###
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_table('sync_state')
+    # ### end Alembic commands ###
+</file>
+
+<file path="migrations/versions/9e1006682810_delete_changed_at_and_created_at_.py">
+"""Delete changed_at and created_at columns from place
+
+Revision ID: 9e1006682810
+Revises: 93fddb254a2d
+Create Date: 2026-09-04 23:25:10.848749
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+
+# revision identifiers, used by Alembic.
+revision: str = '9e1006682810'
+down_revision: Union[str, Sequence[str], None] = '93fddb254a2d'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_column('places', 'changed_at')
+    op.drop_column('places', 'created_at')
+    # ### end Alembic commands ###
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.add_column('places', sa.Column('created_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=False))
+    op.add_column('places', sa.Column('changed_at', postgresql.TIMESTAMP(timezone=True), autoincrement=False, nullable=False))
+    # ### end Alembic commands ###
+</file>
+
+<file path="migrations/versions/fbea495c14b0_add_idempotency_key_to_tickets_table.py">
+"""Add idempotency_key to tickets table
+
+Revision ID: fbea495c14b0
+Revises: 3470d9565509
+Create Date: 2026-10-03 15:02:47.471740
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+
+
+# revision identifiers, used by Alembic.
+revision: str = 'fbea495c14b0'
+down_revision: Union[str, Sequence[str], None] = '3470d9565509'
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.add_column('tickets', sa.Column('idempotency_key', sa.String(length=128), nullable=True))
+    op.create_index(
+        "ix_tickets_idempotency_key",
+        "tickets",
+        ["idempotency_key"],
+        unique=True,
+    )
+    # ### end Alembic commands ###
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_index("ix_tickets_idempotency_key", table_name="tickets")
+    op.drop_column('tickets', 'idempotency_key')
+    # ### end Alembic commands ###
+</file>
+
+<file path="migrations/script.py.mako">
+"""${message}
+
+Revision ID: ${up_revision}
+Revises: ${down_revision | comma,n}
+Create Date: ${create_date}
+
+"""
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+${imports if imports else ""}
+
+# revision identifiers, used by Alembic.
+revision: str = ${repr(up_revision)}
+down_revision: Union[str, Sequence[str], None] = ${repr(down_revision)}
+branch_labels: Union[str, Sequence[str], None] = ${repr(branch_labels)}
+depends_on: Union[str, Sequence[str], None] = ${repr(depends_on)}
+
+
+def upgrade() -> None:
+    """Upgrade schema."""
+    ${upgrades if upgrades else "pass"}
+
+
+def downgrade() -> None:
+    """Downgrade schema."""
+    ${downgrades if downgrades else "pass"}
+</file>
+
+<file path="tests/test_provider_client.py">
+import uuid
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
+
+import httpx
+import pytest
+
+from app.clients.events_provider import EventsProviderClient
+
+FAKE_BASE_URL = "http://events-provider.local"
+FAKE_API_KEY = "test-api-key-000"
+
+_NOW = datetime(2026, 9, 5, tzinfo=UTC).isoformat()
+
+
+def _make_place_payload() -> dict:
+    return {
+        "id": str(uuid.uuid4()),
+        "name": "Test Hall",
+        "city": "Testville",
+        "address": "1 Test Street",
+        "seats_pattern": "A1-A10",
+        "changed_at": _NOW,
+        "created_at": _NOW,
+    }
+
+
+def _make_event_payload(event_id: str | None = None) -> dict:
+    return {
+        "id": event_id or str(uuid.uuid4()),
+        "name": "Test Event",
+        "place": _make_place_payload(),
+        "event_time": _NOW,
+        "registration_deadline": _NOW,
+        "status": "published",
+        "number_of_visitors": 0,
+        "changed_at": _NOW,
+        "created_at": _NOW,
+        "status_changed_at": _NOW,
+    }
+
+
+def _make_response(json_body: dict | None = None, status_code: int = 200) -> MagicMock:
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = status_code
+    response.json.return_value = json_body or {}
+
+    if status_code >= 400:
+        response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "error", request=MagicMock(), response=response
+        )
+    else:
+        response.raise_for_status.side_effect = None
+
+    return response
+
+
+@pytest.fixture
+def client() -> EventsProviderClient:
+    return EventsProviderClient(
+        base_url=FAKE_BASE_URL, api_key=FAKE_API_KEY, timeout=5.0
+    )
+
+
+def test_client_sets_api_key_header(client: EventsProviderClient) -> None:
+    assert client._client.headers["x-api-key"] == FAKE_API_KEY
+
+
+def test_client_without_api_key_omits_header() -> None:
+    anon_client = EventsProviderClient(base_url=FAKE_BASE_URL)
+
+    assert "x-api-key" not in anon_client._client.headers
+
+
+def test_client_strips_trailing_slash_from_base_url() -> None:
+    trailing_slash_client = EventsProviderClient(base_url=f"{FAKE_BASE_URL}/")
+
+    assert trailing_slash_client._client.base_url == httpx.URL(FAKE_BASE_URL)
+
+
+async def test_events_sends_changed_at_param(client: EventsProviderClient) -> None:
+    event_id = str(uuid.uuid4())
+    page = {"next": None, "previous": None, "results": [_make_event_payload(event_id)]}
+    client._client.get = AsyncMock(return_value=_make_response(page))
+
+    result = await client.events(changed_at="2000-01-01")
+
+    client._client.get.assert_awaited_once_with(
+        url="/api/events/", params={"changed_at": "2000-01-01"}
+    )
+    assert str(result.results[0].id) == event_id
+
+
+async def test_events_includes_cursor_when_provided(
+    client: EventsProviderClient,
+) -> None:
+    page = {"next": None, "previous": None, "results": []}
+    client._client.get = AsyncMock(return_value=_make_response(page))
+
+    await client.events(changed_at="2000-01-01", cursor="cursor-abc")
+
+    _, kwargs = client._client.get.await_args
+    assert kwargs["params"] == {"changed_at": "2000-01-01", "cursor": "cursor-abc"}
+
+
+async def test_events_omits_cursor_when_not_provided(
+    client: EventsProviderClient,
+) -> None:
+    page = {"next": None, "previous": None, "results": []}
+    client._client.get = AsyncMock(return_value=_make_response(page))
+
+    await client.events(changed_at="2000-01-01")
+
+    _, kwargs = client._client.get.await_args
+    assert "cursor" not in kwargs["params"]
+
+
+async def test_events_raises_on_http_error(client: EventsProviderClient) -> None:
+    client._client.get = AsyncMock(return_value=_make_response(status_code=500))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.events()
+
+
+async def test_get_seats_calls_correct_url(client: EventsProviderClient) -> None:
+    body = {"seats": ["A1", "A2"]}
+    client._client.get = AsyncMock(return_value=_make_response(body))
+
+    result = await client.get_seats("event-1")
+
+    client._client.get.assert_awaited_once_with(url="/api/events/event-1/seats/")
+    assert result.seats == ["A1", "A2"]
+
+
+async def test_get_seats_raises_on_http_error(client: EventsProviderClient) -> None:
+    client._client.get = AsyncMock(return_value=_make_response(status_code=404))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.get_seats("missing-event")
+
+
+async def test_register_sends_expected_payload(client: EventsProviderClient) -> None:
+    ticket_id = str(uuid.uuid4())
+    body = {"ticket_id": ticket_id}
+    client._client.post = AsyncMock(return_value=_make_response(body))
+
+    result = await client.register(
+        event_id="event-1",
+        first_name="Anna",
+        last_name="Karlsson",
+        email="anna@example.com",
+        seat="B12",
+    )
+
+    client._client.post.assert_awaited_once_with(
+        url="/api/events/event-1/register/",
+        json={
+            "first_name": "Anna",
+            "last_name": "Karlsson",
+            "email": "anna@example.com",
+            "seat": "B12",
+        },
+    )
+    assert str(result.ticket_id) == ticket_id
+
+
+async def test_register_raises_on_http_error(client: EventsProviderClient) -> None:
+    client._client.post = AsyncMock(return_value=_make_response(status_code=400))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.register(
+            event_id="event-1",
+            first_name="Anna",
+            last_name="Karlsson",
+            email="anna@example.com",
+            seat="B12",
+        )
+
+
+async def test_unregister_sends_ticket_id_via_delete(
+    client: EventsProviderClient,
+) -> None:
+    body = {"success": True}
+    client._client.request = AsyncMock(return_value=_make_response(body))
+
+    result = await client.unregister(event_id="event-1", ticket_id="ticket-1")
+
+    client._client.request.assert_awaited_once_with(
+        method="DELETE",
+        url="/api/events/event-1/unregister/",
+        json={"ticket_id": "ticket-1"},
+    )
+    assert result.success is True
+
+
+async def test_unregister_raises_on_http_error(client: EventsProviderClient) -> None:
+    client._client.request = AsyncMock(return_value=_make_response(status_code=404))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.unregister(event_id="event-1", ticket_id="missing-ticket")
+
+
+async def test_aclose_closes_underlying_httpx_client(
+    client: EventsProviderClient,
+) -> None:
+    client._client.aclose = AsyncMock()
+
+    await client.aclose()
+
+    client._client.aclose.assert_awaited_once()
+
+
+async def test_async_context_manager_closes_client_on_exit() -> None:
+    async with EventsProviderClient(base_url=FAKE_BASE_URL) as ctx_client:
+        ctx_client._client.aclose = AsyncMock()
+        aclose_mock = ctx_client._client.aclose
+
+    aclose_mock.assert_awaited_once()
+</file>
+
+<file path="tests/test_provider_paginator.py">
+import uuid
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app.clients.events_paginator import EventsPaginator
+from app.clients.events_provider import EventsProviderClient
+from app.schemas.events_provider import ProviderEventsPageSchema
+
+_NOW = datetime(2026, 9, 5, tzinfo=UTC).isoformat()
+_CHANGED_AT = "2000-01-01"
+
+
+def _make_place_payload() -> dict:
+    return {
+        "id": str(uuid.uuid4()),
+        "name": "Test Hall",
+        "city": "Testville",
+        "address": "1 Test Street",
+        "seats_pattern": "A1-A10",
+        "changed_at": _NOW,
+        "created_at": _NOW,
+    }
+
+
+def _make_event_payload(event_id: str) -> dict:
+    return {
+        "id": event_id,
+        "name": "Test Event",
+        "place": _make_place_payload(),
+        "event_time": _NOW,
+        "registration_deadline": _NOW,
+        "status": "published",
+        "number_of_visitors": 0,
+        "changed_at": _NOW,
+        "created_at": _NOW,
+        "status_changed_at": _NOW,
+    }
+
+
+def _make_page(
+    event_ids: list[str], next_url: str | None = None, previous_url: str | None = None
+) -> ProviderEventsPageSchema:
+    return ProviderEventsPageSchema.model_validate(
+        {
+            "next": next_url,
+            "previous": previous_url,
+            "results": [_make_event_payload(event_id) for event_id in event_ids],
+        }
+    )
+
+
+@pytest.fixture
+def client() -> AsyncMock:
+    return AsyncMock(spec=EventsProviderClient)
+
+
+async def test_paginator_yields_all_events_across_pages(client: AsyncMock) -> None:
+    event_id_1, event_id_2, event_id_3 = (str(uuid.uuid4()) for _ in range(3))
+    page1 = _make_page(
+        [event_id_1, event_id_2],
+        next_url="http://provider.test/api/events/?changed_at=2000-01-01&cursor=abc",
+    )
+    page2 = _make_page([event_id_3], next_url=None)
+    client.events.side_effect = [page1, page2]
+
+    events = [event async for event in EventsPaginator(client, changed_at=_CHANGED_AT)]
+
+    assert [str(e.id) for e in events] == [event_id_1, event_id_2, event_id_3]
+    assert client.events.await_count == 2
+
+
+async def test_paginator_stops_when_single_empty_page(client: AsyncMock) -> None:
+    client.events.return_value = _make_page([], next_url=None)
+
+    events = [event async for event in EventsPaginator(client, changed_at=_CHANGED_AT)]
+
+    assert events == []
+    client.events.assert_awaited_once_with(changed_at=_CHANGED_AT, cursor=None)
+
+
+async def test_paginator_passes_changed_at_on_every_call(client: AsyncMock) -> None:
+    page1 = _make_page(
+        [str(uuid.uuid4())],
+        next_url="http://provider.test/api/events/?changed_at=2000-01-01&cursor=abc",
+    )
+    page2 = _make_page([], next_url=None)
+    client.events.side_effect = [page1, page2]
+
+    async for _ in EventsPaginator(client, changed_at=_CHANGED_AT):
+        pass
+
+    first_call = client.events.await_args_list[0]
+    second_call = client.events.await_args_list[1]
+    assert first_call.kwargs == {"changed_at": _CHANGED_AT, "cursor": None}
+    assert second_call.kwargs == {"changed_at": _CHANGED_AT, "cursor": "abc"}
+
+
+async def test_paginator_extracts_cursor_from_next_url(client: AsyncMock) -> None:
+    page1 = _make_page(
+        [str(uuid.uuid4())],
+        next_url="http://provider.test/api/events/?changed_at=2000-01-01&cursor=xyz789",
+    )
+    page2 = _make_page([], next_url=None)
+    client.events.side_effect = [page1, page2]
+
+    async for _ in EventsPaginator(client, changed_at=_CHANGED_AT):
+        pass
+
+    second_call = client.events.await_args_list[1]
+    assert second_call.kwargs["cursor"] == "xyz789"
+
+
+async def test_paginator_treats_missing_cursor_param_as_none(client: AsyncMock) -> None:
+    page1 = _make_page(
+        [str(uuid.uuid4())],
+        next_url="http://provider.test/api/events/?changed_at=2000-01-01",
+    )
+    page2 = _make_page([], next_url=None)
+    client.events.side_effect = [page1, page2]
+
+    async for _ in EventsPaginator(client, changed_at=_CHANGED_AT):
+        pass
+
+    second_call = client.events.await_args_list[1]
+    assert second_call.kwargs["cursor"] is None
+
+
+async def test_paginator_calls_client_exactly_once_per_page(client: AsyncMock) -> None:
+    event_ids = [str(uuid.uuid4()) for _ in range(3)]
+    page1 = _make_page(event_ids[:2], next_url="http://provider.test/?cursor=abc")
+    page2 = _make_page(event_ids[2:], next_url=None)
+    client.events.side_effect = [page1, page2]
+
+    paginator = EventsPaginator(client, changed_at=_CHANGED_AT)
+    collected = []
+    async for event in paginator:
+        collected.append(event)
+    assert len(collected) == 3
+    assert client.events.await_count == 2
+
+
+async def test_paginator_raises_stop_async_iteration_when_exhausted(
+    client: AsyncMock,
+) -> None:
+    client.events.return_value = _make_page([], next_url=None)
+
+    paginator = EventsPaginator(client, changed_at=_CHANGED_AT)
+
+    with pytest.raises(StopAsyncIteration):
+        await paginator.__anext__()
+</file>
+
+<file path=".dockerignore">
+.venv/
+.git/
+.github/
+</file>
+
+<file path=".env.example">
+POSTGRES_DATABASE_NAME=
+POSTGRES_HOST=
+POSTGRES_PORT=
+POSTGRES_USERNAME=
+POSTGRES_PASSWORD=
+
+EVENTS_PROVIDER_BASE_URL=
+EVENTS_PROVIDER_API_KEY=
+</file>
+
+<file path=".python-version">
+3.14
+</file>
+
+<file path="README.md">
+
+</file>
+
+<file path="app/api/lifespan.py">
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from app.clients.capashino import CapashinoClient
+from app.clients.events_provider import EventsProviderClient
+from app.core.config import Settings
+from app.workers.background_sync import BackgroundSyncWorker
+from app.workers.outbox import OutboxWorker
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    logger.info("Startup...")
+    settings = Settings()
+    app.state.provider_client = EventsProviderClient(
+        base_url=settings.events_provider_base_url,
+        api_key=settings.events_provider_api_key.get_secret_value(),
+        timeout=settings.events_provider_timeout,
+    )
+
+    bg_worker = BackgroundSyncWorker(
+        client=app.state.provider_client, interval=settings.bg_worker_sync_interval
+    )
+    app.state.bg_sync_worker = bg_worker
+    bg_worker.start()
+
+    outbox_worker = OutboxWorker(
+            client=CapashinoClient(
+                base_url=settings.capashino_base_url,
+                api_key=settings.capashino_api_key.get_secret_value(),
+                ),
+            interval=settings.outbox_worker_interval,
+            max_attempts=settings.outbox_max_attempts,
+            )
+
+    app.state.outbox_worker = outbox_worker
+    outbox_worker.start()
+
+
+    try:
+        yield
+
+    finally:
+        await bg_worker.stop()
+        await app.state.provider_client.aclose()
+        await outbox_worker.stop()
+</file>
+
+<file path="app/core/db.py">
+import logging
+from collections.abc import AsyncIterator
+
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.orm import declarative_base
+
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
+
+BaseModel = declarative_base()
+
+engine = create_async_engine(url=settings.db_url, pool_pre_ping=True, echo=False)
+
+session_maker = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    autoflush=False,
+    expire_on_commit=False,
+    autocommit=False,
+)
+
+
+async def get_session() -> AsyncIterator[AsyncSession]:
+    async with session_maker() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+</file>
+
+<file path="app/errors/events.py">
+class EventNotFound(Exception):
+    pass
+
+class EventUnexpectedStatus(Exception):
+    pass
+
+class RegistrationClosed(Exception):
+    pass
+
+class EventAlreadyOccurred(Exception):
+    pass
+</file>
+
+<file path="app/errors/tickets.py">
+class SeatNotAvailable(Exception):
+    pass
+
+
+class TicketNotFound(Exception):
+    pass
+
+
+class IdempotencyKeyConflict(Exception):
+    pass
+
+class DuplicateIdempotencyKey(Exception):
+    pass
+</file>
+
+<file path="app/models/__init__.py">
+from app.models.events import Event
+from app.models.places import Place
+from app.models.sync_state import SyncState
+from app.models.tickets import Ticket
+
+__all__ = ["Event", "Place", "SyncState", "Ticket"]
+</file>
+
+<file path="app/models/events.py">
+import uuid
+from datetime import datetime
+from typing import TYPE_CHECKING
+
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Uuid
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.core.db import BaseModel
+
+if TYPE_CHECKING:
+    from .places import Place
+
+class Event(BaseModel):
+    __tablename__ = "events"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    place_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("places.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    event_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    registration_deadline: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(255), nullable=False)
+    number_of_visitors: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+
+    place: Mapped[Place] = relationship(back_populates="events")
+</file>
+
+<file path="app/models/places.py">
+import uuid
+from typing import TYPE_CHECKING
+
+from sqlalchemy import String, Uuid
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.core.db import BaseModel
+
+if TYPE_CHECKING:
+    from .events import Event
+
+
+class Place(BaseModel):
+    __tablename__ = "places"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    city: Mapped[str] = mapped_column(String(255), nullable=False)
+    address: Mapped[str] = mapped_column(String(255), nullable=False)
+    seats_pattern: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    events: Mapped[list[Event]] = relationship(back_populates="place")
+</file>
+
+<file path="app/repositories/places.py">
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.domain import entities
+from app.models.places import Place
+
+
+def _to_domain(sql_place: Place) -> entities.Place:
+    return entities.Place(
+        id=sql_place.id,
+        name=sql_place.name,
+        city=sql_place.city,
+        address=sql_place.address,
+        seats_pattern=sql_place.seats_pattern,
+    )
+
+class SqlAlchemyPlaceRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def upsert(self, place: entities.Place) -> None:
+        stmt = insert(Place).values(
+            id=place.id,
+            name=place.name,
+            city=place.city,
+            address=place.address,
+            seats_pattern=place.seats_pattern,
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[Place.id],
+            set_={
+                "name": stmt.excluded.name,
+                "city": stmt.excluded.city,
+                "address": stmt.excluded.address,
+                "seats_pattern": stmt.excluded.seats_pattern,
+            },
+        )
+        await self.session.execute(stmt)
+</file>
+
+<file path="app/schemas/events.py">
+import uuid
+from datetime import date, datetime
+
+from pydantic import BaseModel, Field
+
+from app.enums.event import EventStatus
+from app.schemas.place import PlaceDetailSchema, PlaceSchema
+
+
+class EventsQuerySchema(BaseModel):
+    date_from: date | None = None
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=20, ge=1, le=100)
+
+
+class EventsDetailSchema(BaseModel):
+    id: uuid.UUID
+    name: str
+    place: PlaceDetailSchema
+    event_time: datetime
+    registration_deadline: datetime
+    status: EventStatus
+    number_of_visitors: int
+
+
+class EventsListItemSchema(BaseModel):
+    id: uuid.UUID
+    name: str
+    place: PlaceSchema
+    event_time: datetime
+    registration_deadline: datetime
+    status: EventStatus
+    number_of_visitors: int
+
+
+class EventsListSchema(BaseModel):
+    count: int
+    next: str | None
+    previous: str | None
+    results: list[EventsListItemSchema]
+
+
+class EventsSeatsSchema(BaseModel):
+    event_id: uuid.UUID
+    available_seats: list[str]
+</file>
+
+<file path="app/schemas/place.py">
+import uuid
+
+from pydantic import BaseModel
+
+
+class PlaceSchema(BaseModel):
+    id: uuid.UUID
+    name: str
+    city: str
+    address: str
+
+class PlaceDetailSchema(PlaceSchema):
+    seats_pattern: str
+</file>
+
+<file path="app/schemas/tickets.py">
+import uuid
+
+from pydantic import BaseModel, EmailStr, Field
+
+
+class TicketCreateQuerySchema(BaseModel):
+    event_id: uuid.UUID
+    first_name: str = Field(min_length=1, max_length=255)
+    last_name: str = Field(min_length=1, max_length=255)
+    email: EmailStr
+    seat: str = Field(min_length=1, max_length=50)
+    idempotency_key: str | None = Field(
+        default=None,
+        max_length=128,
+    )
+
+
+class TicketCreateSchema(BaseModel):
+    ticket_id: uuid.UUID
+
+
+class TicketDeleteSchema(BaseModel):
+    success: bool
+</file>
+
+<file path="app/services/sync_events.py">
+import logging
+from datetime import UTC, datetime
+
+from app.clients.events_paginator import EventsPaginator
+from app.clients.events_provider import EventsProviderClient
+from app.domain.entities import Event, Place, SyncState
+from app.enums.event import EventStatus
+from app.enums.sync_state import SyncStatus
+from app.repositories.protocols import EventRepository, PlaceRepository, SyncRepository
+from app.schemas.events_provider import ProviderEventSchema
+
+logger = logging.getLogger(__name__)
+
+
+def _event_to_domain(provider_event: ProviderEventSchema) -> Event:
+    place = Place(
+        id=provider_event.place.id,
+        name=provider_event.place.name,
+        city=provider_event.place.city,
+        address=provider_event.place.address,
+        seats_pattern=provider_event.place.seats_pattern,
+    )
+
+    return Event(
+        id=provider_event.id,
+        name=provider_event.name,
+        place=place,
+        event_time=provider_event.event_time,
+        registration_deadline=provider_event.registration_deadline,
+        status=EventStatus(provider_event.status),
+        number_of_visitors=provider_event.number_of_visitors,
+        changed_at=provider_event.changed_at,
+    )
+
+
+class SyncEventsService:
+    def __init__(
+        self,
+        client: EventsProviderClient,
+        events: EventRepository,
+        place: PlaceRepository,
+        sync: SyncRepository,
+    ) -> None:
+        self._client = client
+        self._events_repo = events
+        self._place_repo = place
+        self._sync_repo = sync
+
+    async def sync(self) -> None:
+        actual_sync_state = await self._sync_repo.get_state()
+        last_changed_at = (
+            actual_sync_state.last_changed_at
+            if actual_sync_state.last_changed_at
+            else datetime(2000, 1, 1, tzinfo=UTC)
+        )
+
+        paginator = EventsPaginator(
+            client=self._client, changed_at=last_changed_at.date().isoformat()
+        )
+
+        await self._sync_repo.save_state(
+            SyncState(
+                last_sync_time=actual_sync_state.last_sync_time,
+                last_changed_at=actual_sync_state.last_changed_at,
+                sync_status=SyncStatus.RUNNING,
+            )
+        )
+
+        try:
+            async for provider_event in paginator:
+                event = _event_to_domain(provider_event)
+                await self._place_repo.upsert(event.place)
+                await self._events_repo.upsert(event)
+                last_changed_at = max(event.changed_at, last_changed_at)
+
+        except Exception as e:
+            logger.exception(e)
+            await self._sync_repo.save_state(
+                SyncState(datetime.now(UTC), last_changed_at, SyncStatus.FAILED, str(e))
+            )
+        else:
+            await self._sync_repo.save_state(
+                SyncState(datetime.now(UTC), last_changed_at, SyncStatus.SUCCESS)
+            )
+</file>
+
+<file path="app/workers/background_sync.py">
+import asyncio
+import contextlib
+import logging
+
+from app.clients.events_provider import EventsProviderClient
+from app.core.db import session_maker
+from app.repositories.events import SqlAlchemyEventRepository
+from app.repositories.places import SqlAlchemyPlaceRepository
+from app.repositories.sync import SqlAlchemySyncRepository
+from app.services.sync_events import SyncEventsService
+
+logger = logging.getLogger(__name__)
+
+
+class BackgroundSyncWorker:
+    def __init__(self, client: EventsProviderClient, interval: int) -> None:
+        self._client = client
+        self._interval = interval
+        self._lock = asyncio.Lock()
+        self._task: asyncio.Task | None = None
+
+    def start(self) -> None:
+        self._task = asyncio.create_task(self._loop(), name="events-sync-worker")
+        logger.info("Background worker started, interval=%s", self._interval)
+
+    async def stop(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+
+    async def trigger(self) -> None:
+        await self._run_once()
+
+    async def _loop(self) -> None:
+        while True:
+            await self._run_once()
+            await asyncio.sleep(self._interval)
+
+    async def _run_once(self) -> None:
+        if self._lock.locked():
+            logger.info("Background worker already started")
+            return
+
+        async with self._lock:
+            try:
+                async with session_maker() as session:
+                    sync_events = SyncEventsService(
+                        client=self._client,
+                        place=SqlAlchemyPlaceRepository(session),
+                        events=SqlAlchemyEventRepository(session),
+                        sync=SqlAlchemySyncRepository(session),
+                    )
+                    await sync_events.sync()
+            except Exception:
+                logger.exception("Unexpected worker error")
+</file>
+
+<file path="migrations/README">
+Generic single-database configuration.
+</file>
+
+<file path="Dockerfile">
+FROM python:3.14-slim
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+RUN addgroup --system --gid 1000 appuser && \
+    adduser --system --uid 1000 --ingroup appuser --home /home/appuser/ appuser
+
+WORKDIR /code
+
+COPY --chown=appuser:appuser pyproject.toml uv.lock ./
+
+ENV UV_NO_DEV=1
+
+RUN uv sync --frozen
+
+COPY --chown=appuser:appuser . .
+
+USER appuser
+
+ENTRYPOINT ["./entrypoint.sh"]
+
+CMD ["bash", "./entrypoint.sh"]
+</file>
+
+<file path="entrypoint.sh">
+#!/bin/sh
+
+set -e
+
+uv run alembic upgrade head
+
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+</file>
+
+<file path="app/api/routers/sync.py">
+from fastapi import APIRouter, Depends
+
+from app.api.deps import get_sync_events_service
+from app.services.sync_events import SyncEventsService
+
+router = APIRouter(prefix="/api/sync", tags=["sync"])
+
+
+@router.post("/trigger")
+async def manual_sync(
+    sync_service: SyncEventsService = Depends(get_sync_events_service),
+):
+
+    await sync_service.sync()
+
+    return {"status": "sync triggered"}
+</file>
+
+<file path="migrations/env.py">
+from logging.config import fileConfig
+
+from sqlalchemy import engine_from_config
+from sqlalchemy import pool
+
+from alembic import context
+
+from app.core.config import settings
+from app.core.db import BaseModel
+from app.models import events, outbox, places, tickets
+
+# this is the Alembic Config object, which provides
+# access to the values within the .ini file in use.
+config = context.config
+
+# Interpret the config file for Python logging.
+# This line sets up loggers basically.
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+
+url = settings.db_url.render_as_string(hide_password=False).replace(
+    "postgresql+asyncpg",
+    "postgresql+psycopg",
+)
+
+config.set_main_option("sqlalchemy.url", url)
+# add your model's MetaData object here
+# for 'autogenerate' support
+# from myapp import mymodel
+# target_metadata = mymodel.Base.metadata
+target_metadata = BaseModel.metadata
+
+# other values from the config, defined by the needs of env.py,
+# can be acquired:
+# my_important_option = config.get_main_option("my_important_option")
+# ... etc.
+
+
+def run_migrations_offline() -> None:
+    """Run migrations in 'offline' mode.
+
+    This configures the context with just a URL
+    and not an Engine, though an Engine is acceptable
+    here as well.  By skipping the Engine creation
+    we don't even need a DBAPI to be available.
+
+    Calls to context.execute() here emit the given string to the
+    script output.
+
+    """
+    url = config.get_main_option("sqlalchemy.url")
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def run_migrations_online() -> None:
+    """Run migrations in 'online' mode.
+
+    In this scenario we need to create an Engine
+    and associate a connection with the context.
+
+    """
+    connectable = engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+
+    with connectable.connect() as connection:
+        context.configure(
+            connection=connection, target_metadata=target_metadata
+        )
+
+        with context.begin_transaction():
+            context.run_migrations()
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
+</file>
+
+<file path="app/api/routers/events.py">
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, Request
+from fastapi.exceptions import HTTPException
+
+from app.api.deps import get_events_service, get_seats_service
+from app.domain.entities import Event
+from app.errors.events import EventNotFound, EventUnexpectedStatus
+from app.schemas.events import (
+    EventsDetailSchema,
+    EventsListItemSchema,
+    EventsListSchema,
+    EventsQuerySchema,
+    EventsSeatsSchema,
+)
+from app.schemas.place import PlaceDetailSchema, PlaceSchema
+from app.services.events import EventService
+from app.services.seats import SeatsService
+
+router = APIRouter(prefix="/api/events", tags=["events"])
+
+
+def _to_list_item(event: Event) -> EventsListItemSchema:
+    return EventsListItemSchema(
+        id=event.id,
+        name=event.name,
+        place=PlaceSchema(
+            id=event.place.id,
+            name=event.place.name,
+            city=event.place.city,
+            address=event.place.address,
+        ),
+        event_time=event.event_time,
+        registration_deadline=event.registration_deadline,
+        status=event.status,
+        number_of_visitors=event.number_of_visitors,
+    )
+
+
+def _to_detail(event: Event) -> EventsDetailSchema:
+    return EventsDetailSchema(
+        id=event.id,
+        name=event.name,
+        place=PlaceDetailSchema(
+            id=event.place.id,
+            name=event.place.name,
+            city=event.place.city,
+            address=event.place.address,
+            seats_pattern=event.place.seats_pattern,
+        ),
+        event_time=event.event_time,
+        registration_deadline=event.registration_deadline,
+        status=event.status,
+        number_of_visitors=event.number_of_visitors,
+    )
+
+
+def _page_url(request: Request, page: int, page_size: int) -> str:
+    url = request.url.include_query_params(page=page, page_size=page_size)
+    return str(url)
+
+
+@router.get("", response_model=EventsListSchema)
+async def get_events(
+    request: Request,
+    data: EventsQuerySchema = Depends(),
+    events: EventService = Depends(get_events_service),
+):
+    list_events, count = await events.get_events(
+        data.date_from, data.page, data.page_size
+    )
+
+    has_next = data.page * data.page_size < count
+    has_previous = data.page > 1
+
+    return EventsListSchema(
+        count=count,
+        next=_page_url(request, data.page + 1, data.page_size) if has_next else None,
+        previous=_page_url(request, data.page - 1, data.page_size)
+        if has_previous
+        else None,
+        results=[_to_list_item(event) for event in list_events],
+    )
+
+
+@router.get("/{event_id}", response_model=EventsDetailSchema)
+async def get_event_detail(
+    event_id: UUID, events: EventService = Depends(get_events_service)
+):
+    try:
+        event = await events.get_event_detail(event_id=event_id)
+
+    except EventNotFound as e:
+        raise HTTPException(status_code=404, detail="Event not found") from e
+
+    return EventsDetailSchema(
+            id=event.id,
+            name=event.name,
+            place=PlaceDetailSchema(
+                id=event.place.id,
+                name=event.place.name,
+                city=event.place.city,
+                address=event.place.address,
+                seats_pattern=event.place.seats_pattern,
+            ),
+            event_time=event.event_time,
+            registration_deadline=event.registration_deadline,
+            status=event.status,
+            number_of_visitors=event.number_of_visitors,
+        )
+
+
+@router.get("/{event_id}/seats", response_model=EventsSeatsSchema)
+async def get_event_seats_info(
+    event_id: UUID, seats: SeatsService = Depends(get_seats_service)
+):
+    try:
+        available_seats = await seats.get_seats(event_id=event_id)
+    except EventNotFound as e:
+        raise HTTPException(status_code=404, detail="Event not found") from e
+    except EventUnexpectedStatus as e:
+        raise HTTPException(status_code=409, detail="Event unexpected status") from e
+
+    return EventsSeatsSchema(event_id=event_id, available_seats=available_seats)
+</file>
+
+<file path="app/core/config.py">
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine.url import URL
+
+
+class Settings(BaseSettings):
+    debug: bool = False
+    app_port: int = 8000
+    app_name: str = "Events Aggregator"
+
+    postgres_host: str = "db"
+    postgres_port: int = 5432
+    postgres_database_name: str = ""
+    postgres_username: str = ""
+    postgres_password: str = ""
+
+    db_echo: bool = False
+    db_pool_pre_ping: bool = True
+
+    events_provider_base_url: str = ""
+    events_provider_api_key: SecretStr = SecretStr("")
+    events_provider_timeout: int = 10
+
+    bg_worker_sync_interval: int = 24 * 60 * 60
+
+    capashino_base_url: str = ""
+    capashino_api_key: SecretStr = SecretStr("")
+
+    outbox_worker_interval: int = 30
+    outbox_max_attempts: int = 5
+    outbox_limit_records: int = 30
+
+    sentry_dsn: str = ""
+
+    @property
+    def db_url(self) -> URL:
+        return URL.create(
+            "postgresql+asyncpg",
+            self.postgres_username,
+            self.postgres_password,
+            self.postgres_host,
+            self.postgres_port,
+            self.postgres_database_name,
+        )
+
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
+
+
+settings = Settings()
+</file>
+
+<file path="app/models/tickets.py">
+import uuid
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, String, Uuid, func
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.core.db import BaseModel
+
+
+class Ticket(BaseModel):
+    __tablename__ = "tickets"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+
+    external_ticket_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, nullable=False, unique=True, index=True
+    )
+
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("events.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+
+    first_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    last_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    seat: Mapped[str] = mapped_column(String(50), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, unique=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=func.now()
+    )
+</file>
+
+<file path="app/schemas/events_provider.py">
+import uuid
+from datetime import datetime
+
+from pydantic import BaseModel
+
+
+class ProviderPlaceSchema(BaseModel):
+    id: uuid.UUID
+    name: str
+    city: str
+    address: str
+    seats_pattern: str
+    changed_at: datetime
+    created_at: datetime
+
+
+class ProviderEventSchema(BaseModel):
+    id: uuid.UUID
+    name: str
+    place: ProviderPlaceSchema
+    event_time: datetime
+    registration_deadline: datetime
+    status: str
+    number_of_visitors: int
+    changed_at: datetime
+    created_at: datetime
+    status_changed_at: datetime
+
+
+class ProviderEventsPageSchema(BaseModel):
+    next: str | None
+    previous: str | None
+    results: list[ProviderEventSchema]
+
+
+class ProviderSeatsSchema(BaseModel):
+    seats: list[str]
+
+
+class ProviderRegisterSchema(BaseModel):
+    ticket_id: uuid.UUID
+
+
+class ProviderUnregisterSchema(BaseModel):
+    success: bool
+</file>
+
+<file path="docker-compose.yml">
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+    ports:
+      - "8000:8000"
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USERNAME}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DATABASE_NAME}
+    env_file:
+      - .env
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USERNAME} -d ${POSTGRES_DATABASE_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+ 
+volumes:
+  pg_data:
+</file>
+
+<file path=".github/workflows/deploy.yml">
+name: Deploy to LMS
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff
+
+      - name: Run Ruff
+        run: ruff check --output-format=github .
+
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run tests
+        run: uv run pytest -q --disable-warnings --maxfail=1
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [test, lint]
+    outputs:
+      image: ${{ steps.meta.outputs.tags }}
+      repo: ${{ steps.repo.outputs.repo }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set lowercase repository name
+        id: repo
+        run: echo "repo=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ steps.repo.outputs.repo }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64,linux/amd64
+          push: true
+          tags: ghcr.io/${{ steps.repo.outputs.repo }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: [build, lint]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send deploy request
+        run: |
+          HTTP_CODE=$(curl -s -o response.txt -w "%{http_code}" -X POST \
+            -H "Content-Type: application/json" \
+            -H "X-API-Key: ${{ secrets.LMS_API_KEY }}" \
+            -d '{"image":"ghcr.io/${{ needs.build.outputs.repo }}:${{ github.sha }}","repository":"${{ github.repository }}"}' \
+            https://lms.python-labs.ru/api/deploy-requests)
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Deployment failed with status code $HTTP_CODE"
+            echo "Response body:"
+            cat response.txt
+            exit 1
+          fi
+</file>
+
+<file path="app/api/deps.py">
+from fastapi import Depends, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.clients.events_provider import EventsProviderClient
+from app.core.db import get_session
+from app.repositories.events import SqlAlchemyEventRepository
+from app.repositories.outbox import SqlAlchemyOutboxRepository
+from app.repositories.places import SqlAlchemyPlaceRepository
+from app.repositories.protocols import (
+    EventRepository,
+    OutboxRepository,
+    PlaceRepository,
+    SyncRepository,
+    TicketRepository,
+)
+from app.repositories.sync import SqlAlchemySyncRepository
+from app.repositories.tickets import SqlAlchemyTicketRepository
+from app.services.events import EventService
+from app.services.seats import SeatsService
+from app.services.sync_events import SyncEventsService
+from app.services.tickets import TicketService
+
+
+def get_event_repository(
+    session: AsyncSession = Depends(get_session),
+) -> EventRepository:
+    return SqlAlchemyEventRepository(session)
+
+
+def get_events_service(
+    events_repo: EventRepository = Depends(get_event_repository),
+) -> EventService:
+    return EventService(events_repo)
+
+
+def get_sync_repository(
+    session: AsyncSession = Depends(get_session),
+) -> SyncRepository:
+    return SqlAlchemySyncRepository(session)
+
+
+def get_place_repository(
+    session: AsyncSession = Depends(get_session),
+) -> PlaceRepository:
+    return SqlAlchemyPlaceRepository(session)
+
+
+def get_events_provider_client(request: Request) -> EventsProviderClient:
+    return request.app.state.provider_client
+
+
+def get_sync_events_service(
+    client: EventsProviderClient = Depends(get_events_provider_client),
+    events_repo: EventRepository = Depends(get_event_repository),
+    place_repo: PlaceRepository = Depends(get_place_repository),
+    sync_repo: SyncRepository = Depends(get_sync_repository),
+) -> SyncEventsService:
+    return SyncEventsService(
+        client=client,
+        events=events_repo,
+        place=place_repo,
+        sync=sync_repo,
+    )
+
+
+def get_seats_service(
+    client: EventsProviderClient = Depends(get_events_provider_client),
+    events_repo: EventRepository = Depends(get_event_repository),
+) -> SeatsService:
+    return SeatsService(client=client, events_repo=events_repo)
+
+
+def get_ticket_repository(
+    session: AsyncSession = Depends(get_session),
+) -> TicketRepository:
+    return SqlAlchemyTicketRepository(session)
+
+
+def get_outbox_repository(
+    session: AsyncSession = Depends(get_session),
+) -> OutboxRepository:
+    return SqlAlchemyOutboxRepository(session)
+
+
+def get_ticket_service(
+    client: EventsProviderClient = Depends(get_events_provider_client),
+    events_repo: EventRepository = Depends(get_event_repository),
+    ticket_repo: TicketRepository = Depends(get_ticket_repository),
+    outbox_repo: OutboxRepository = Depends(get_outbox_repository),
+) -> TicketService:
+    return TicketService(
+        client=client,
+        events=events_repo,
+        tickets=ticket_repo,
+        outbox=outbox_repo,
+    )
+</file>
+
+<file path="app/domain/entities.py">
+import datetime
+import uuid
+from dataclasses import dataclass, field
+
+from app.enums.event import EventStatus
+from app.enums.outbox import OutboxStatus, OutboxTypes
+from app.enums.sync_state import SyncStatus
+
+
+@dataclass(slots=True)
+class Place:
+    id: uuid.UUID
+    name: str
+    city: str
+    address: str
+    seats_pattern: str
+
+
+@dataclass(slots=True)
+class Event:
+    id: uuid.UUID
+    name: str
+    place: Place
+    event_time: datetime.datetime
+    registration_deadline: datetime.datetime
+    status: EventStatus
+    number_of_visitors: int
+    changed_at: datetime.datetime
+
+
+@dataclass(slots=True)
+class Ticket:
+    id: uuid.UUID
+    provider_ticket_id: uuid.UUID
+    event_id: uuid.UUID
+    first_name: str
+    last_name: str
+    email: str
+    seat: str
+    idempotency_key: str | None = None
+
+@dataclass(slots=True)
+class SyncState:
+    last_sync_time: datetime.datetime | None
+    last_changed_at: datetime.datetime | None
+    sync_status: SyncStatus
+    last_error: str | None = None
+
+
+@dataclass(slots=True)
+class OutboxRecord:
+    id: uuid.UUID
+    event_type: OutboxTypes
+    payload: dict
+    status: OutboxStatus = OutboxStatus.PENDING
+    attempts_number: int = 0
+    created_at: datetime.datetime = field(
+        default_factory=lambda: datetime.datetime.now(datetime.UTC)
+    )
+    changed_at: datetime.datetime = field(
+        default_factory=lambda: datetime.datetime.now(datetime.UTC)
+    )
+</file>
+
+<file path="app/api/routers/tickets.py">
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.api.deps import get_ticket_service
+from app.errors.events import (
+    EventAlreadyOccurred,
+    EventNotFound,
+    EventUnexpectedStatus,
+    RegistrationClosed,
+)
+from app.errors.tickets import IdempotencyKeyConflict, SeatNotAvailable, TicketNotFound
+from app.schemas.tickets import (
+    TicketCreateQuerySchema,
+    TicketCreateSchema,
+    TicketDeleteSchema,
+)
+from app.services.tickets import TicketService
+
+router = APIRouter(prefix="/api/tickets", tags=["tickets"])
+
+
+@router.post("", response_model=TicketCreateSchema, status_code=201)
+async def register(
+    data: TicketCreateQuerySchema,
+    tickets: TicketService = Depends(get_ticket_service),
+):
+    try:
+        ticket_id = await tickets.register(
+            event_id=data.event_id,
+            first_name=data.first_name,
+            last_name=data.last_name,
+            email=data.email,
+            seat=data.seat,
+            idempotency_key=data.idempotency_key,
+        )
+    except EventNotFound as e:
+        raise HTTPException(status_code=404, detail="Event not found") from e
+    except EventUnexpectedStatus as e:
+        raise HTTPException(status_code=409, detail="Event unexpected status") from e
+    except RegistrationClosed as e:
+        raise HTTPException(status_code=409, detail="Registration closed") from e
+    except SeatNotAvailable as e:
+        raise HTTPException(status_code=409, detail="Seat not available") from e
+    except IdempotencyKeyConflict as e:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Requset with idempotency_key {data.idempotency_key}"
+            " already processed",
+        ) from e
+    return TicketCreateSchema(ticket_id=ticket_id)
+
+
+@router.delete("/{ticket_id}", response_model=TicketDeleteSchema)
+async def unregister(
+    ticket_id: uuid.UUID, tickets: TicketService = Depends(get_ticket_service)
+):
+    try:
+        success = await tickets.unregister(ticket_id)
+    except TicketNotFound as e:
+        raise HTTPException(status_code=404, detail="Ticket not found") from e
+    except EventAlreadyOccurred as e:
+        raise HTTPException(status_code=409, detail="Event already occured") from e
+
+    return TicketDeleteSchema(success=success)
+</file>
+
+<file path="app/clients/events_provider.py">
+from httpx import AsyncClient
+
+from app.schemas.events_provider import (
+    ProviderEventsPageSchema,
+    ProviderRegisterSchema,
+    ProviderSeatsSchema,
+    ProviderUnregisterSchema,
+)
+
+
+class EventsProviderClient:
+    def __init__(self, base_url: str, api_key: str = "", timeout: float = 15.0) -> None:
+        headers = {"x-api-key": api_key} if api_key else {}
+        self._client = AsyncClient(
+            base_url=base_url.rstrip("/"),
+            headers=headers,
+            timeout=timeout,
+            follow_redirects=True,
+        )
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+    async def __aenter__(self) -> EventsProviderClient:
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        await self.aclose()
+
+    async def events(
+        self, changed_at: str = "2000-01-01", cursor: str | None = None
+    ) -> ProviderEventsPageSchema:
+        url = "/api/events/"
+        params = {
+            "changed_at": changed_at,
+        }
+
+        if cursor is not None:
+            params["cursor"] = cursor
+
+        response = await self._client.get(url=url, params=params)
+
+        response.raise_for_status()
+        return ProviderEventsPageSchema.model_validate(response.json())
+
+    async def get_seats(self, event_id: str) -> ProviderSeatsSchema:
+        url = f"/api/events/{event_id}/seats/"
+
+        response = await self._client.get(url=url)
+
+        response.raise_for_status()
+        return ProviderSeatsSchema.model_validate(response.json())
+
+    async def register(
+        self, event_id: str, first_name: str, last_name: str, email: str, seat: str
+    ) -> ProviderRegisterSchema:
+        url = f"/api/events/{event_id}/register/"
+
+        params = {
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": email,
+            "seat": seat,
+        }
+
+        response = await self._client.post(url=url, json=params)
+
+        response.raise_for_status()
+        return ProviderRegisterSchema.model_validate(response.json())
+
+    async def unregister(
+        self, event_id: str, ticket_id: str
+    ) -> ProviderUnregisterSchema:
+        url = f"/api/events/{event_id}/unregister/"
+
+        params = {"ticket_id": ticket_id}
+
+        response = await self._client.request(method="DELETE", url=url, json=params)
+
+        response.raise_for_status()
+        return ProviderUnregisterSchema.model_validate(response.json())
+</file>
+
+<file path="app/repositories/protocols.py">
+from datetime import date
+from typing import Protocol
+from uuid import UUID
+
+from app.domain.entities import Event, OutboxRecord, Place, SyncState, Ticket
+
+
+class TicketRepository(Protocol):
+    async def create(self, ticket: Ticket) -> None: ...
+
+    async def get(self, ticket_id: UUID) -> Ticket | None: ...
+
+    async def get_by_idempotency_key(self, idempotency_key: str) -> Ticket | None: ...
+
+    async def delete_by_id(self, ticket_id: UUID) -> bool: ...
+
+
+class EventRepository(Protocol):
+    async def get_by_id(self, event_id: UUID) -> Event | None: ...
+
+    async def upsert(self, event: Event) -> None: ...
+
+    async def get_list_paginated(
+        self, date_from: date | None = None, page: int = 1, page_size: int = 20
+    ) -> list[Event]: ...
+
+    async def count(self, date_from: date | None = None) -> int: ...
+
+
+class PlaceRepository(Protocol):
+    async def upsert(self, place: Place) -> None: ...
+
+
+class SyncRepository(Protocol):
+    async def get_state(self) -> SyncState: ...
+
+    async def save_state(self, state: SyncState) -> None: ...
+
+
+class OutboxRepository(Protocol):
+    async def create(self, record: OutboxRecord) -> None: ...
+
+    async def get_pending(self, limit: int) -> list[OutboxRecord]: ...
+
+    async def mark_sent(self, record_id: UUID) -> None: ...
+
+    async def mark_failed_attempt(self, record_id: UUID) -> None: ...
+
+    async def mark_failed(self, record_id: UUID) -> None: ...
+</file>
+
+<file path="app/services/tickets.py">
+import uuid
+from datetime import UTC, datetime
+from uuid import UUID
+
+from app.clients.events_provider import EventsProviderClient
+from app.domain.entities import OutboxRecord, Ticket
+from app.enums.event import EventStatus
+from app.enums.outbox import OutboxTypes
+from app.errors.events import (
+    EventAlreadyOccurred,
+    EventNotFound,
+    EventUnexpectedStatus,
+    RegistrationClosed,
+)
+from app.errors.tickets import (
+    DuplicateIdempotencyKey,
+    IdempotencyKeyConflict,
+    TicketNotFound,
+)
+from app.repositories.protocols import (
+    EventRepository,
+    OutboxRepository,
+    TicketRepository,
+)
+
+
+class TicketService:
+    def __init__(
+        self,
+        client: EventsProviderClient,
+        events: EventRepository,
+        tickets: TicketRepository,
+        outbox: OutboxRepository,
+    ) -> None:
+        self._client = client
+        self._events = events
+        self._tickets = tickets
+        self._outbox = outbox
+
+    async def register(
+        self,
+        event_id: UUID,
+        first_name: str,
+        last_name: str,
+        email: str,
+        seat: str,
+        idempotency_key: str | None = None,
+    ) -> UUID:
+
+        if idempotency_key:
+            existing = await self._tickets.get_by_idempotency_key(idempotency_key)
+            if existing is not None:
+                self._check_existing(
+                    ticket=existing,
+                    event_id=event_id,
+                    first_name=first_name,
+                    last_name=last_name,
+                    email=email,
+                    seat=seat,
+                )
+                return existing.id
+
+        event = await self._events.get_by_id(event_id)
+
+        if event is None:
+            raise EventNotFound(event_id)
+
+        if event.status != EventStatus.PUBLISHED:
+            raise EventUnexpectedStatus(event.status)
+
+        if event.registration_deadline <= datetime.now(UTC):
+            raise RegistrationClosed(event.id)
+
+        provider_ticket_response = await self._client.register(
+            event_id=str(event.id),
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
+            seat=seat,
+        )
+        ticket = Ticket(
+            id=uuid.uuid4(),
+            provider_ticket_id=provider_ticket_response.ticket_id,
+            event_id=event.id,
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
+            seat=seat,
+            idempotency_key=idempotency_key
+        )
+        try:
+            await self._tickets.create(ticket)
+        except DuplicateIdempotencyKey:
+            if not idempotency_key:
+                raise
+
+            winner = await self._tickets.get_by_idempotency_key(
+                idempotency_key=idempotency_key
+            )
+            if winner is None:
+                raise
+            self._check_existing(
+                    ticket=winner,
+                    event_id=event_id,
+                    first_name=first_name,
+                    last_name=last_name,
+                    email=email,
+                    seat=seat,
+                )
+            return winner.id
+
+        success_registration_message = (
+            f"Вы успешно зарегистрированы на {event.name},"
+            " {event.event_time:%d.%m.%Y %H:%M}, место {seat}"
+        )
+        record_id = uuid.uuid4()
+        await self._outbox.create(
+            record=OutboxRecord(
+                id=record_id,
+                event_type=OutboxTypes.NOTIFICATION,
+                payload={
+                    "message": success_registration_message,
+                    "reference_id": str(ticket.id),
+                    "idempotency_key": str(record_id),
+                },
+            )
+        )
+
+        return ticket.id
+
+    async def unregister(self, ticket_id: UUID) -> bool:
+        ticket = await self._tickets.get(ticket_id=ticket_id)
+
+        if ticket is None:
+            raise TicketNotFound()
+
+        event = await self._events.get_by_id(event_id=ticket.event_id)
+
+        if event is None:
+            raise EventNotFound()
+
+        if event.event_time < datetime.now(UTC):
+            raise EventAlreadyOccurred()
+
+        unregister_response = await self._client.unregister(
+            str(event.id), str(ticket.provider_ticket_id)
+        )
+        if unregister_response.success:
+            await self._tickets.delete_by_id(ticket_id=ticket_id)
+
+        return unregister_response.success
+
+
+    def _check_existing(
+        self,
+        ticket: Ticket,
+        event_id: UUID,
+        first_name: str,
+        last_name: str,
+        email: str,
+        seat: str,
+    ) -> None:
+        if (
+            ticket.event_id,
+            ticket.first_name,
+            ticket.last_name,
+            ticket.email,
+            ticket.seat,
+        ) != (event_id, first_name, last_name, email, seat):
+            raise IdempotencyKeyConflict(ticket.idempotency_key)
+</file>
+
+<file path="app/main.py">
+import sentry_sdk
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.starlette import StarletteIntegration
+from starlette.responses import JSONResponse
+
+from app.api.lifespan import lifespan
+from app.api.routers import events, sync, tickets
+from app.core.config import settings
+
+if settings.sentry_dsn:
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        integrations=[FastApiIntegration(), StarletteIntegration()],
+    )
+
+app = FastAPI(
+    title=settings.app_name,
+    lifespan=lifespan,
+    version="2.0.0",
+)
+
+app.include_router(events.router)
+app.include_router(sync.router)
+app.include_router(tickets.router)
+
+
+# just for lms
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(
+    request: Request, exc: RequestValidationError
+):
+    return JSONResponse(status_code=400, content={"detail": exc.errors()})
+
+
+@app.get("/api/health", tags=["health"])
+async def health_check() -> dict[str, str]:
+    return {"status": "ok"}
+</file>
+
+<file path="app/repositories/tickets.py">
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.domain import entities
+from app.errors.tickets import DuplicateIdempotencyKey
+from app.models.tickets import Ticket
+
+
+def _to_domain(ticket: Ticket) -> entities.Ticket:
+    return entities.Ticket(
+        id=ticket.id,
+        provider_ticket_id=ticket.external_ticket_id,
+        event_id=ticket.event_id,
+        first_name=ticket.first_name,
+        last_name=ticket.last_name,
+        email=ticket.email,
+        seat=ticket.seat,
+        idempotency_key=ticket.idempotency_key,
+    )
+
+
+class SqlAlchemyTicketRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def create(self, ticket: entities.Ticket) -> None:
+        sql_ticket = Ticket(
+            id=ticket.id,
+            external_ticket_id=ticket.provider_ticket_id,
+            event_id=ticket.event_id,
+            first_name=ticket.first_name,
+            last_name=ticket.last_name,
+            seat=ticket.seat,
+            email=ticket.email,
+            idempotency_key=ticket.idempotency_key,
+        )
+
+        self.session.add(sql_ticket)
+
+        if ticket.idempotency_key is None:
+            return
+
+        try:
+            async with self.session.begin_nested():
+                await self.session.flush()
+        except IntegrityError as e:
+            raise DuplicateIdempotencyKey(ticket.idempotency_key) from e
+
+    async def get(self, ticket_id: UUID) -> entities.Ticket | None:
+        ticket = await self.session.get(Ticket, ticket_id)
+
+        return _to_domain(ticket) if ticket else None
+
+    async def get_by_idempotency_key(
+        self, idempotency_key: str
+    ) -> entities.Ticket | None:
+        stmt = select(Ticket).where(Ticket.idempotency_key == idempotency_key)
+
+        result = (await self.session.execute(stmt)).scalar_one_or_none()
+
+        return _to_domain(result) if result else None
+
+    async def delete_by_id(self, ticket_id: UUID) -> bool:
+        ticket = await self.session.get(Ticket, ticket_id)
+
+        if not ticket:
+            return False
+
+        await self.session.delete(ticket)
+        await self.session.flush()
+
+        return True
+</file>
+
+<file path="pyproject.toml">
+[project]
+name = "events-aggregator"
+version = "2.0.0"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "alembic>=1.19.1",
+    "asyncpg>=0.31.0",
+    "fastapi>=0.141.1",
+    "greenlet>=3.5.5",
+    "httpx>=0.28.1",
+    "psycopg[binary]>=3.3.4",
+    "pydantic-settings>=2.15.0",
+    "pydantic[email]>=2.13.4",
+    "sentry-sdk[fastapi]>=2.71.0",
+    "sqlalchemy>=2.0.52",
+    "uvicorn>=0.52.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.5",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py314"
+exclude = ["migrations", "__pycache__", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+</file>
+
+</files>

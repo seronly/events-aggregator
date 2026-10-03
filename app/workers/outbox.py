@@ -60,11 +60,12 @@ class OutboxWorker:
                                     await outbox.mark_sent(record_id=record.id)
                         except Exception as e:
                             logger.exception(
-                                "Unexpected error while process record in worker",
-                                {"record_id": record.id, "exception": e},
+                                "Unexpected error while process"
+                                f" record with id {record.id} in worker",
+                                extra={"exception": e},
                             )
         except Exception as e:
             logger.exception(
                 "Unexpected error in outbox worker",
-                {"exception": e},
+                extra={"exception": e},
             )
