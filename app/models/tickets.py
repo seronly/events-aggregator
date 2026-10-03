@@ -25,6 +25,10 @@ class Ticket(BaseModel):
     seat: Mapped[str] = mapped_column(String(50), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False)
 
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(128), nullable=True, unique=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=func.now()
     )

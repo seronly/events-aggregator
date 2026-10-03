@@ -12,7 +12,11 @@ from app.errors.events import (
     EventUnexpectedStatus,
     RegistrationClosed,
 )
-from app.errors.tickets import TicketNotFound
+from app.errors.tickets import (
+    DuplicateIdempotencyKey,
+    IdempotencyKeyConflict,
+    TicketNotFound,
+)
 from app.repositories.protocols import (
     EventRepository,
     OutboxRepository,
@@ -34,8 +38,28 @@ class TicketService:
         self._outbox = outbox
 
     async def register(
-        self, event_id: UUID, first_name: str, last_name: str, email: str, seat: str
+        self,
+        event_id: UUID,
+        first_name: str,
+        last_name: str,
+        email: str,
+        seat: str,
+        idempotency_key: str | None = None,
     ) -> UUID:
+
+        if idempotency_key:
+            existing = await self._tickets.get_by_idempotency_key(idempotency_key)
+            if existing is not None:
+                self._check_existing(
+                    ticket=existing,
+                    event_id=event_id,
+                    first_name=first_name,
+                    last_name=last_name,
+                    email=email,
+                    seat=seat,
+                )
+                return existing.id
+
         event = await self._events.get_by_id(event_id)
 
         if event is None:
@@ -63,7 +87,26 @@ class TicketService:
             email=email,
             seat=seat,
         )
-        ticket_id = await self._tickets.create(ticket)
+        try:
+            await self._tickets.create(ticket)
+        except DuplicateIdempotencyKey:
+            if not idempotency_key:
+                raise
+
+            winner = await self._tickets.get_by_idempotency_key(
+                idempotency_key=idempotency_key
+            )
+            if winner is None:
+                raise
+            self._check_existing(
+                    ticket=winner,
+                    event_id=event_id,
+                    first_name=first_name,
+                    last_name=last_name,
+                    email=email,
+                    seat=seat,
+                )
+            return winner.id
 
         success_registration_message = (
             f"Вы успешно зарегистрированы на {event.name},"
@@ -82,7 +125,7 @@ class TicketService:
             )
         )
 
-        return ticket_id
+        return ticket.id
 
     async def unregister(self, ticket_id: UUID) -> bool:
         ticket = await self._tickets.get(ticket_id=ticket_id)
@@ -105,3 +148,22 @@ class TicketService:
             await self._tickets.delete_by_id(ticket_id=ticket_id)
 
         return unregister_response.success
+
+
+    def _check_existing(
+        self,
+        ticket: Ticket,
+        event_id: UUID,
+        first_name: str,
+        last_name: str,
+        email: str,
+        seat: str,
+    ) -> None:
+        if (
+            ticket.event_id,
+            ticket.first_name,
+            ticket.last_name,
+            ticket.email,
+            ticket.seat,
+        ) != (event_id, first_name, last_name, email, seat):
+            raise IdempotencyKeyConflict(ticket.idempotency_key)

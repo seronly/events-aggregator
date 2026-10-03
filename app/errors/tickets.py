@@ -4,3 +4,10 @@ class SeatNotAvailable(Exception):
 
 class TicketNotFound(Exception):
     pass
+
+
+class IdempotencyKeyConflict(Exception):
+    pass
+
+class DuplicateIdempotencyKey(Exception):
+    pass

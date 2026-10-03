@@ -9,7 +9,7 @@ from app.errors.events import (
     EventUnexpectedStatus,
     RegistrationClosed,
 )
-from app.errors.tickets import SeatNotAvailable, TicketNotFound
+from app.errors.tickets import IdempotencyKeyConflict, SeatNotAvailable, TicketNotFound
 from app.schemas.tickets import (
     TicketCreateQuerySchema,
     TicketCreateSchema,
@@ -32,6 +32,7 @@ async def register(
             last_name=data.last_name,
             email=data.email,
             seat=data.seat,
+            idempotency_key=data.idempotency_key,
         )
     except EventNotFound as e:
         raise HTTPException(status_code=404, detail="Event not found") from e
@@ -41,7 +42,12 @@ async def register(
         raise HTTPException(status_code=409, detail="Registration closed") from e
     except SeatNotAvailable as e:
         raise HTTPException(status_code=409, detail="Seat not available") from e
-
+    except IdempotencyKeyConflict as e:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Requset with idempotency_key {data.idempotency_key}"
+            " already processed",
+        ) from e
     return TicketCreateSchema(ticket_id=ticket_id)
 
 

@@ -37,7 +37,7 @@ class Ticket:
     last_name: str
     email: str
     seat: str
-
+    idempotency_key: str | None = None
 
 @dataclass(slots=True)
 class SyncState:
