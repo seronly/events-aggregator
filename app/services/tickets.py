@@ -86,6 +86,7 @@ class TicketService:
             last_name=last_name,
             email=email,
             seat=seat,
+            idempotency_key=idempotency_key
         )
         try:
             await self._tickets.create(ticket)

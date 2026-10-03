@@ -10,6 +10,7 @@ services:
     environment:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
+      EVENTS_PROVIDER_BASE_URL: "https://events-provider.dev-2.python-labs.ru"
     ports:
       - "8000:8000"
 
