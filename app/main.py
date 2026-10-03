@@ -6,7 +6,7 @@ from sentry_sdk.integrations.starlette import StarletteIntegration
 from starlette.responses import JSONResponse
 
 from app.api.lifespan import lifespan
-from app.api.routers import events, sync, tickets
+from app.api.routers import events, glitchtip, sync, tickets
 from app.core.config import settings
 
 if settings.sentry_dsn:
@@ -24,6 +24,7 @@ app = FastAPI(
 app.include_router(events.router)
 app.include_router(sync.router)
 app.include_router(tickets.router)
+app.include_router(glitchtip.router)
 
 
 # just for lms
