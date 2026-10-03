@@ -18,7 +18,7 @@ if settings.sentry_dsn:
 app = FastAPI(
     title=settings.app_name,
     lifespan=lifespan,
-    version="1.1.0",
+    version="2.0.0",
 )
 
 app.include_router(events.router)
