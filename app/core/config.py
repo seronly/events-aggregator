@@ -19,6 +19,9 @@ class Settings(BaseSettings):
 
     events_provider_base_url: str = ""
     events_provider_api_key: SecretStr = SecretStr("")
+    events_provider_timeout: int = 10
+
+    bg_worker_sync_interval: int = 24 * 60 * 60
 
     capashino_base_url: str = ""
     capashino_api_key: SecretStr = SecretStr("")
