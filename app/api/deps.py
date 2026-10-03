@@ -4,9 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.clients.events_provider import EventsProviderClient
 from app.core.db import get_session
 from app.repositories.events import SqlAlchemyEventRepository
+from app.repositories.outbox import SqlAlchemyOutboxRepository
 from app.repositories.places import SqlAlchemyPlaceRepository
 from app.repositories.protocols import (
     EventRepository,
+    OutboxRepository,
     PlaceRepository,
     SyncRepository,
     TicketRepository,
@@ -67,18 +69,28 @@ def get_seats_service(
 ) -> SeatsService:
     return SeatsService(client=client, events_repo=events_repo)
 
+
 def get_ticket_repository(
-        session: AsyncSession = Depends(get_session)
-        ) -> TicketRepository:
+    session: AsyncSession = Depends(get_session),
+) -> TicketRepository:
     return SqlAlchemyTicketRepository(session)
+
+
+def get_outbox_repository(
+    session: AsyncSession = Depends(get_session),
+) -> OutboxRepository:
+    return SqlAlchemyOutboxRepository(session)
+
 
 def get_ticket_service(
     client: EventsProviderClient = Depends(get_events_provider_client),
     events_repo: EventRepository = Depends(get_event_repository),
     ticket_repo: TicketRepository = Depends(get_ticket_repository),
+    outbox_repo: OutboxRepository = Depends(get_outbox_repository),
 ) -> TicketService:
     return TicketService(
-            client=client,
-            events=events_repo,
-            tickets=ticket_repo
-            )
+        client=client,
+        events=events_repo,
+        tickets=ticket_repo,
+        outbox=outbox_repo,
+    )
