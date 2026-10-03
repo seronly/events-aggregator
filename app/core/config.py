@@ -20,7 +20,14 @@ class Settings(BaseSettings):
     events_provider_base_url: str = ""
     events_provider_api_key: SecretStr = SecretStr("")
 
+    capashino_base_url: str = ""
+    capashino_api_key: SecretStr = SecretStr("")
 
+    outbox_worker_interval: int = 30
+    outbox_max_attempts: int = 5
+    outbox_limit_records: int = 30
+
+    sentry_dsn: str = ""
 
     @property
     def db_url(self) -> URL:
