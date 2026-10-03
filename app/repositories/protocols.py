@@ -2,7 +2,7 @@ from datetime import date
 from typing import Protocol
 from uuid import UUID
 
-from app.domain.entities import Event, Place, SyncState, Ticket
+from app.domain.entities import Event, OutboxRecord, Place, SyncState, Ticket
 
 
 class TicketRepository(Protocol):
@@ -33,3 +33,15 @@ class SyncRepository(Protocol):
     async def get_state(self) -> SyncState: ...
 
     async def save_state(self, state: SyncState) -> None: ...
+
+
+class OutboxRepository(Protocol):
+    async def create(self, record: OutboxRecord) -> None: ...
+
+    async def get_pending(self, limit: int) -> list[OutboxRecord]: ...
+
+    async def mark_sent(self, record_id: UUID) -> None: ...
+
+    async def mark_failed_attempt(self, record_id: UUID) -> None: ...
+
+    async def mark_failed(self, record_id: UUID) -> None: ...

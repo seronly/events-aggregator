@@ -1,8 +1,9 @@
 import datetime
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.enums.event import EventStatus
+from app.enums.outbox import OutboxStatus, OutboxTypes
 from app.enums.sync_state import SyncStatus
 
 
@@ -37,9 +38,25 @@ class Ticket:
     email: str
     seat: str
 
+
 @dataclass(slots=True)
 class SyncState:
     last_sync_time: datetime.datetime | None
     last_changed_at: datetime.datetime | None
     sync_status: SyncStatus
     last_error: str | None = None
+
+
+@dataclass(slots=True)
+class OutboxRecord:
+    id: uuid.UUID
+    event_type: OutboxTypes
+    payload: dict
+    status: OutboxStatus = OutboxStatus.PENDING
+    attempts_number: int = 0
+    created_at: datetime.datetime = field(
+        default_factory=lambda: datetime.datetime.now(datetime.UTC)
+    )
+    changed_at: datetime.datetime = field(
+        default_factory=lambda: datetime.datetime.now(datetime.UTC)
+    )

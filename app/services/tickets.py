@@ -3,8 +3,9 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from app.clients.events_provider import EventsProviderClient
-from app.domain.entities import Ticket
+from app.domain.entities import OutboxRecord, Ticket
 from app.enums.event import EventStatus
+from app.enums.outbox import OutboxTypes
 from app.errors.events import (
     EventAlreadyOccurred,
     EventNotFound,
@@ -12,7 +13,11 @@ from app.errors.events import (
     RegistrationClosed,
 )
 from app.errors.tickets import TicketNotFound
-from app.repositories.protocols import EventRepository, TicketRepository
+from app.repositories.protocols import (
+    EventRepository,
+    OutboxRepository,
+    TicketRepository,
+)
 
 
 class TicketService:
@@ -21,10 +26,12 @@ class TicketService:
         client: EventsProviderClient,
         events: EventRepository,
         tickets: TicketRepository,
+        outbox: OutboxRepository,
     ) -> None:
         self._client = client
         self._events = events
         self._tickets = tickets
+        self._outbox = outbox
 
     async def register(
         self, event_id: UUID, first_name: str, last_name: str, email: str, seat: str
@@ -57,6 +64,23 @@ class TicketService:
             seat=seat,
         )
         ticket_id = await self._tickets.create(ticket)
+
+        success_registration_message = (
+            f"Вы успешно зарегистрированы на {event.name},"
+            " {event.event_time:%d.%m.%Y %H:%M}, место {seat}"
+        )
+        record_id = uuid.uuid4()
+        await self._outbox.create(
+            record=OutboxRecord(
+                id=record_id,
+                event_type=OutboxTypes.NOTIFICATION,
+                payload={
+                    "message": success_registration_message,
+                    "reference_id": str(ticket.id),
+                    "idempotency_key": str(record_id),
+                },
+            )
+        )
 
         return ticket_id
 
